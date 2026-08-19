@@ -4,7 +4,6 @@ import sqlite3
 import datetime
 import urllib.parse
 import math
-from io import BytesIO
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -14,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- MODERN MODERN LUXURY RTL STYLING (CSS) ---
+# --- MODERN LUXURY RTL STYLING (CSS) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
@@ -27,12 +26,12 @@ st.markdown("""
     
     /* App Background */
     .stApp {
-        background: #f4f7f6;
+        background: #f8fafc;
     }
     
     /* Sidebar Styling */
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0d2e24 0%, #164032 100%);
+        background: linear-gradient(180deg, #0f382c 0%, #164032 100%);
         color: #ffffff !important;
         border-left: 2px solid #d4af37;
     }
@@ -45,52 +44,50 @@ st.markdown("""
     .main-header {
         background: linear-gradient(135deg, #0f382c 0%, #1a5241 60%, #d4af37 100%);
         color: white;
-        padding: 30px;
-        border-radius: 20px;
+        padding: 25px;
+        border-radius: 16px;
         text-align: center;
         margin-bottom: 25px;
-        box-shadow: 0px 10px 25px rgba(15, 56, 44, 0.2);
+        box-shadow: 0px 8px 20px rgba(15, 56, 44, 0.15);
         border: 1px solid rgba(212, 175, 55, 0.4);
     }
     .main-header h1 {
         color: #ffffff !important;
         margin: 0;
         font-weight: 900;
-        font-size: 2.3rem;
-        letter-spacing: -0.5px;
+        font-size: 2.2rem;
     }
     .main-header p {
-        color: #e2e8f0 !important;
-        font-size: 1.1rem;
-        margin-top: 8px;
+        color: #f1f5f9 !important;
+        font-size: 1rem;
+        margin-top: 5px;
     }
 
     /* Buttons Modern Styling */
     .stButton>button {
         background: linear-gradient(135deg, #1a5241 0%, #0f382c 100%) !important;
         color: #ffffff !important;
-        border-radius: 12px !important;
+        border-radius: 10px !important;
         border: 1px solid #d4af37 !important;
-        padding: 10px 24px !important;
+        padding: 8px 20px !important;
         font-weight: 700 !important;
-        font-size: 1rem !important;
+        font-size: 0.95rem !important;
         transition: all 0.3s ease !important;
-        box-shadow: 0 4px 12px rgba(26, 82, 65, 0.15) !important;
+        box-shadow: 0 4px 10px rgba(26, 82, 65, 0.12) !important;
         width: 100%;
     }
     .stButton>button:hover {
         background: linear-gradient(135deg, #d4af37 0%, #b89228 100%) !important;
         color: #0f382c !important;
         transform: translateY(-2px);
-        box-shadow: 0 6px 18px rgba(212, 175, 55, 0.3) !important;
     }
 
     /* Metrics Modern Card */
     div[data-testid="stMetric"] {
         background: #ffffff;
-        padding: 20px;
-        border-radius: 16px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.04);
+        padding: 18px;
+        border-radius: 14px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.04);
         border-right: 5px solid #1a5241;
         border-top: 1px solid #e2e8f0;
         border-bottom: 1px solid #e2e8f0;
@@ -108,50 +105,26 @@ st.markdown("""
     /* Dataframe Table Fixes & Custom Styling */
     div[data-testid="stDataFrame"] {
         background: white;
-        padding: 15px;
-        border-radius: 16px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+        padding: 12px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
         border: 1px solid #e2e8f0;
     }
     
-    /* Inputs Styling */
-    .stTextInput>div>div>input, .stSelectbox>div>div, .stNumberInput>div>div>input {
-        border-radius: 10px !important;
-        border: 1px solid #cbd5e1 !important;
-        padding: 8px 12px !important;
-        background-color: #ffffff !important;
-    }
-    
-    /* Tabs Design */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 10px 10px 0 0;
-        padding: 10px 20px;
-        background-color: #e2e8f0;
-        color: #334155;
-        font-weight: 700;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #1a5241 !important;
-        color: #ffffff !important;
-    }
-
     /* Card Box Container */
     .custom-card {
         background: white;
-        padding: 24px;
+        padding: 22px;
         border-radius: 16px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.03);
         margin-bottom: 20px;
-        border: 1px solid #f1f5f9;
+        border: 1px solid #e2e8f0;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # --- DATABASE SETUP ---
-DB_FILE = "donations_system_v4.db"
+DB_FILE = "donations_system_v5.db"
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -164,17 +137,7 @@ def init_db():
     c.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, notes TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS teachers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, salary REAL DEFAULT 0, project TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS staff (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, role TEXT, salary REAL DEFAULT 0)")
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS donor_allocations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        donor_id INTEGER NOT NULL,
-        donor_name TEXT NOT NULL,
-        beneficiary_type TEXT NOT NULL,
-        beneficiary_name TEXT NOT NULL,
-        allocated_amount REAL NOT NULL,
-        notes TEXT
-    )
-    """)
+    c.execute("CREATE TABLE IF NOT EXISTS donor_allocations (id INTEGER PRIMARY KEY AUTOINCREMENT, donor_id INTEGER NOT NULL, donor_name TEXT NOT NULL, beneficiary_type TEXT NOT NULL, beneficiary_name TEXT NOT NULL, allocated_amount REAL NOT NULL, notes TEXT)")
 
     c.execute("SELECT COUNT(*) FROM categories")
     if c.fetchone()[0] == 0:
@@ -254,7 +217,9 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 1. DASHBOARD ---
+# ---------------------------------------------------------
+# 1. DASHBOARD
+# ---------------------------------------------------------
 if choice == "📊 لوحة التحكم المباشرة":
     st.markdown("<div class='custom-card'>", unsafe_allow_html=True)
     st.subheader("📊 المؤشرات المالية العامة")
@@ -293,7 +258,9 @@ if choice == "📊 لوحة التحكم المباشرة":
     st.dataframe(pd.DataFrame(summary_data), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# --- 2. DONORS MANAGEMENT ---
+# ---------------------------------------------------------
+# 2. DONORS MANAGEMENT
+# ---------------------------------------------------------
 elif choice == "➕ إضافة وتعديل الداعمين":
     st.markdown("<div class='custom-card'>", unsafe_allow_html=True)
     st.subheader("👥 دليل وتخصيص الداعمين")
@@ -335,17 +302,14 @@ elif choice == "➕ إضافة وتعديل الداعمين":
             monthly_exp = st.number_input("💵 المبلغ الشهري المتوقع (ر.س)", min_value=0.0, value=1500.0, step=100.0)
             
             num_allocs = st.number_input("عدد المستفيدين المكفولين:", min_value=1, max_value=10, value=1)
-            allocated_total = 0.0
-            
             for i in range(int(num_allocs)):
                 ac1, ac2, ac3 = st.columns([1.5, 2, 1.5])
                 b_type = ac1.selectbox(f"النوع #{i+1}", ["معلم", "إداري"], key=f"btype_{i}")
                 b_opts = teachers_df['name'].tolist() if b_type == "معلم" else staff_df['name'].tolist()
                 if not b_opts: b_opts = ["لا يوجد عناصر"]
                 b_name = ac2.selectbox(f"المستفيد #{i+1}", b_opts, key=f"bname_{i}")
-                b_amt = ac3.number_input(f"المبلغ المخصص #{i+1}", min_value=0.0, value=monthly_exp/num_allocs, step=50.0, key=f"bamt_{i}")
+                b_amt = ac3.number_input(f"المبلغ المخصص #{i+1}", min_value=0.0, value=monthly_exp/num_allocs if num_allocs > 0 else 0.0, step=50.0, key=f"bamt_{i}")
                 
-                allocated_total += b_amt
                 allocations.append({"b_type": b_type, "b_name": b_name, "amount": b_amt})
 
         st.markdown("---")
@@ -393,16 +357,86 @@ elif choice == "➕ إضافة وتعديل الداعمين":
                 if b2.form_submit_button("🗑️ حذف الداعم"):
                     c = conn.cursor()
                     c.execute("DELETE FROM donors WHERE id=?", (int(d_data['id']),))
+                    c.execute("DELETE FROM donor_allocations WHERE donor_id=?", (int(d_data['id']),))
                     conn.commit()
                     st.warning("تم الحذف!")
                     st.rerun()
-
+    conn.close()
     st.markdown("</div>", unsafe_allow_html=True)
 
-# --- 5. RECEIPTS ---
+# ---------------------------------------------------------
+# 3. DONOR ALLOCATIONS
+# ---------------------------------------------------------
+elif choice == "🎯 كفالات وتوزيع الدعم":
+    st.markdown("<div class='custom-card'>", unsafe_allow_html=True)
+    st.subheader("🎯 إدارة كفالات وتقسيم دعومات المستفيدين")
+    conn = get_connection()
+    alloc_df = pd.read_sql("SELECT * FROM donor_allocations", conn)
+    
+    if not alloc_df.empty:
+        st.dataframe(alloc_df[['donor_name', 'beneficiary_type', 'beneficiary_name', 'allocated_amount', 'notes']], use_container_width=True)
+    else:
+        st.info("لم يتم إدخال تخصيصات كفالات حتى الآن.")
+    conn.close()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# 4. SYSTEM DEFINITIONS & MANAGEMENT
+# ---------------------------------------------------------
+elif choice == "🛠️ إدارة وتعاريف النظام":
+    st.markdown("<div class='custom-card'>", unsafe_allow_html=True)
+    st.subheader("🛠️ تعاريف وإعدادات النظام")
+    
+    t1, t2, t3 = st.tabs(["👨‍🏫 المعلمين والإداريين", "📁 البنود والتصنيفات", "🕌 الحلقات والمشاريع"])
+    conn = get_connection()
+    
+    with t1:
+        st.write("#### إضافة معلم / إداري جديد")
+        col1, col2, col3 = st.columns(3)
+        p_type = col1.selectbox("الصفة", ["معلم", "إداري"])
+        p_name = col2.text_input("الاسم الثلاثي")
+        p_salary = col3.number_input("الراتب / المستحق الشهري", min_value=0.0, step=100.0)
+        
+        if st.button("➕ إضافة المستفيد") and p_name:
+            c = conn.cursor()
+            if p_type == "معلم":
+                c.execute("INSERT INTO teachers (name, salary) VALUES (?,?)", (p_name, p_salary))
+            else:
+                c.execute("INSERT INTO staff (name, role, salary) VALUES (?,?,?)", (p_name, "إداري", p_salary))
+            conn.commit()
+            st.success("تمت الإضافة بنجاح!")
+            st.rerun()
+
+    with t2:
+        st.write("#### إضافة بند جديد")
+        c1, c2 = st.columns(2)
+        cat_in = c1.text_input("اسم البند الرئيسي الجديد")
+        if c1.button("إضافة بند رئيسي") and cat_in:
+            c = conn.cursor()
+            c.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (cat_in,))
+            conn.commit()
+            st.success("تمت الإضافة!")
+            st.rerun()
+
+    with t3:
+        st.write("#### إضافة مشروع / حلقة")
+        p_in = st.text_input("اسم الحلقة / المشروع")
+        if st.button("إضافة مشروع") and p_in:
+            c = conn.cursor()
+            c.execute("INSERT OR IGNORE INTO projects (name) VALUES (?)", (p_in,))
+            conn.commit()
+            st.success("تمت الإضافة!")
+            st.rerun()
+
+    conn.close()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# 5. RECEIPTS (FIXED ACCURATE SPLITTING)
+# ---------------------------------------------------------
 elif choice == "📥 تسجيل المقبوضات":
     st.markdown("<div class='custom-card'>", unsafe_allow_html=True)
-    st.subheader("📥 تسجيل دفعة مقبوضات")
+    st.subheader("📥 تسجيل دفعة مقبوضات جديدة")
     conn = get_connection()
     donors_df = pd.read_sql("SELECT * FROM donors", conn)
     cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
@@ -421,11 +455,11 @@ elif choice == "📥 تسجيل المقبوضات":
             r_date = c4.date_input("التاريخ", datetime.date.today())
             r_year = c5.selectbox("السنة المالية", YEARS_LIST, index=YEARS_LIST.index(2026))
             
-            selected_months = st.multiselect("📅 حدد الشهر / الأشهر المسددة بهذه الدفعة بالتحديد:", MONTHS)
+            selected_months = st.multiselect("📅 حدد الشهر / الأشهر المسددة بهذه الدفعة حصراً:", MONTHS)
 
             if st.form_submit_button("تسجيل المقبوضات ✅"):
                 if not selected_months:
-                    st.error("⚠️ يرجى تحديد الشهر المدفوع!")
+                    st.error("⚠️ يرجى تحديد الشهر المدفوع بالتحديد!")
                 else:
                     split_amount = total_amount / len(selected_months)
                     hijri_str = get_hijri_str(r_date)
@@ -437,15 +471,52 @@ elif choice == "📥 تسجيل المقبوضات":
                             (str(r_date), hijri_str, donor_info['id'], donor_info['name'], donor_info['project'], r_cat, r_subcat, split_amount, m, int(r_year))
                         )
                     conn.commit()
-                    st.success("✅ تم التسجيل وتقسيم الدفعة على الأشهر المحددة بنجاح!")
+                    st.success("✅ تم تسجيل المقبوضات للشهر / الأشهر المحددة بنجاح!")
                     st.rerun()
-
+    conn.close()
     st.markdown("</div>", unsafe_allow_html=True)
 
-# --- 7. ACCURATE MONTHLY TRACKING MATRIX ---
+# ---------------------------------------------------------
+# 6. EXPENSES
+# ---------------------------------------------------------
+elif choice == "💸 تسجيل المصروفات":
+    st.markdown("<div class='custom-card'>", unsafe_allow_html=True)
+    st.subheader("💸 تسجيل المصروفات والنفقات")
+    conn = get_connection()
+    cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
+    
+    with st.form("expense_form"):
+        col1, col2 = st.columns(2)
+        e_beneficiary = col1.text_input("اسم المستفيد / الجهة")
+        e_cat = col2.selectbox("البند الرئيسي", cats)
+        
+        col3, col4, col5 = st.columns([2, 1, 1])
+        e_amount = col3.number_input("المبلغ (ر.س)", min_value=1.0, step=50.0)
+        e_date = col4.date_input("التاريخ", datetime.date.today())
+        e_year = col5.selectbox("السنة المالية", YEARS_LIST, index=YEARS_LIST.index(2026))
+        
+        e_notes = st.text_area("ملاحظات / بيان الصرف")
+        
+        if st.form_submit_button("تسجيل المصروفات 💸"):
+            hijri_str = get_hijri_str(e_date)
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO expenses (date, date_hijri, beneficiary, category, subcategory, amount, notes, year) VALUES (?,?,?,?,?,?,?,?)",
+                (str(e_date), hijri_str, e_beneficiary, e_cat, "عام", e_amount, e_notes, int(e_year))
+            )
+            conn.commit()
+            st.success("✅ تم تسجيل المصروف بنجاح!")
+            st.rerun()
+            
+    conn.close()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# 7. ACCURATE MONTHLY MATRIX (PROBLEM FIXED)
+# ---------------------------------------------------------
 elif choice == "🗓️ متابعة الأشهر والالتزامات":
     st.markdown("<div class='custom-card'>", unsafe_allow_html=True)
-    st.subheader("🗓️ جدول المتابعة الشهرية الدقيق للداعمين")
+    st.subheader("🗓️ جدول المتابعة الشهري الدقيق للداعمين")
     selected_matrix_year = st.selectbox("📅 اختر السنة:", YEARS_LIST, index=YEARS_LIST.index(2026))
 
     conn = get_connection()
@@ -456,16 +527,14 @@ elif choice == "🗓️ متابعة الأشهر والالتزامات":
     
     st.markdown("""
     **دليل الرموز:** 
-    * (✅) **تم الدفع:** مسجل دفعة مقبوضات لهذا الشهر بالتحديد.
-    * (🎯) **مخصص ومكفول:** داعم مستمر مخصص لمكفولين ولم يسدد هذا الشهر بعد.
-    * (🚨) **متأخر:** داعم مستمر لم يسدد الشهر بعد.
-    * (⚪) **غير مستمر:** دعم مقطوع أو غير مخصص.
+    * (✅ مدفوع) : مسجل تبرع ومقبوضات لهذا الشهر بالتحديد.
+    * (🎯 مخصص) : داعم مستمر لديه كفالة مخصصة ولم يسدد بعد لهذا الشهر.
+    * (🚨 متأخر) : داعم مستمر بدون كفالة مخصصة ولم يسدد لهذا الشهر.
+    * (⚪) : دعم منقطع أو غير مستمر.
     """)
 
     if not donors_df.empty:
         matrix_rows = []
-        
-        # قائمة الداعمين المخصصين
         allocated_donor_ids = allocations_df['donor_id'].tolist() if not allocations_df.empty else []
 
         for _, d in donors_df.iterrows():
@@ -479,7 +548,7 @@ elif choice == "🗓️ متابعة الأشهر والالتزامات":
             is_allocated = d['id'] in allocated_donor_ids
             
             for m in MONTHS:
-                # التحقق هل تسجلت دفعة مقبوضات لهذا الشهر بالتحديد لهذا الداعم
+                # التحقق المباشر من الدفع لهذا الشهر والسنة بخصيصاً
                 paid = not receipts_df[(receipts_df['donor_id'] == d['id']) & (receipts_df['month'] == m)].empty
                 
                 if paid:
@@ -496,4 +565,51 @@ elif choice == "🗓️ متابعة الأشهر والالتزامات":
         st.dataframe(pd.DataFrame(matrix_rows), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# باقي الشاشات تعمل بسلاسة وبنفس الهوية المحدثة...
+# ---------------------------------------------------------
+# 8. WHATSAPP REMINDER CENTER
+# ---------------------------------------------------------
+elif choice == "📱 مركز تذكير الواتساب":
+    st.markdown("<div class='custom-card'>", unsafe_allow_html=True)
+    st.subheader("📱 مركز تذكير الواتساب وإرسال الرسائل")
+    
+    conn = get_connection()
+    donors_df = pd.read_sql("SELECT * FROM donors WHERE phone IS NOT NULL AND phone != ''", conn)
+    conn.close()
+    
+    if not donors_df.empty:
+        selected_d_name = st.selectbox("اختر الداعم للتواصل معهم عبر الواتساب:", donors_df['name'].tolist())
+        donor_info = donors_df[donors_df['name'] == selected_d_name].iloc[0]
+        
+        msg_template = f"السلام عليكم ورحمة الله وبركاته، {donor_info['title']} {donor_info['name']} المحترم، نذكركم بدعمكم الشهري لوقف الإرتقاء الخيري. جزاكم الله خيراً."
+        msg_text = st.text_area("نص الرسالة:", value=msg_template, height=120)
+        
+        phone = str(donor_info['phone']).replace("+", "").replace(" ", "")
+        encoded_msg = urllib.parse.quote(msg_text)
+        wa_url = f"https://api.whatsapp.com/send?phone={phone}&text={encoded_msg}"
+        
+        st.markdown(f'<a href="{wa_url}" target="_blank"><button style="background-color:#25D366; color:white; border:none; padding:12px 24px; border-radius:10px; font-weight:bold; cursor:pointer; width:100%;">📲 إرسال عبر الواتساب الآن</button></a>', unsafe_allow_html=True)
+    else:
+        st.info("لا يوجد داعمين لديهم أرقام هواتف مسجلة بالنظام.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# 9. REPORTS AND PRINTING
+# ---------------------------------------------------------
+elif choice == "🖨️ التقارير والطباعة":
+    st.markdown("<div class='custom-card'>", unsafe_allow_html=True)
+    st.subheader("🖨️ تقارير المقبوضات والمصروفات")
+    
+    rep_year = st.selectbox("اختر السنة المالية:", YEARS_LIST, index=YEARS_LIST.index(2026))
+    conn = get_connection()
+    
+    r_df = pd.read_sql("SELECT date AS التاريخ, donor_name AS الداعم, project AS المشروع, amount AS المبلغ, month AS الشهر FROM receipts WHERE year = ?", conn, params=(rep_year,))
+    e_df = pd.read_sql("SELECT date AS التاريخ, beneficiary AS المستفيد, category AS البند, amount AS المبلغ FROM expenses WHERE year = ?", conn, params=(rep_year,))
+    conn.close()
+    
+    st.write("### 📥 سجل المقبوضات")
+    st.dataframe(r_df, use_container_width=True)
+    
+    st.write("### 💸 سجل المصروفات")
+    st.dataframe(e_df, use_container_width=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
