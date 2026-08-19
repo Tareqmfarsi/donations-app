@@ -24,12 +24,10 @@ st.markdown("""
         text-align: right !important;
     }
     
-    /* App Background */
     .stApp {
         background: #f8fafc;
     }
     
-    /* Sidebar Styling */
     section[data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f382c 0%, #164032 100%);
         color: #ffffff !important;
@@ -40,11 +38,10 @@ st.markdown("""
         color: #f1f5f9 !important;
     }
 
-    /* Main Header Container */
     .main-header {
         background: linear-gradient(135deg, #0f382c 0%, #1a5241 60%, #d4af37 100%);
         color: white;
-        padding: 25px;
+        padding: 22px;
         border-radius: 16px;
         text-align: center;
         margin-bottom: 25px;
@@ -55,15 +52,14 @@ st.markdown("""
         color: #ffffff !important;
         margin: 0;
         font-weight: 900;
-        font-size: 2.2rem;
+        font-size: 2.1rem;
     }
     .main-header p {
         color: #f1f5f9 !important;
-        font-size: 1rem;
+        font-size: 0.95rem;
         margin-top: 5px;
     }
 
-    /* Buttons Modern Styling */
     .stButton>button {
         background: linear-gradient(135deg, #1a5241 0%, #0f382c 100%) !important;
         color: #ffffff !important;
@@ -82,7 +78,6 @@ st.markdown("""
         transform: translateY(-2px);
     }
 
-    /* Metrics Modern Card */
     div[data-testid="stMetric"] {
         background: #ffffff;
         padding: 18px;
@@ -102,7 +97,6 @@ st.markdown("""
         font-weight: 900 !important;
     }
 
-    /* Dataframe Table Fixes & Custom Styling */
     div[data-testid="stDataFrame"] {
         background: white;
         padding: 12px;
@@ -111,7 +105,6 @@ st.markdown("""
         border: 1px solid #e2e8f0;
     }
     
-    /* Card Box Container */
     .custom-card {
         background: white;
         padding: 22px;
@@ -123,7 +116,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- DATABASE SETUP ---
+# --- SAFE DATABASE SETUP (PRESERVES EXISTING DATA) ---
 DB_FILE = "donations_system_v5.db"
 
 def init_db():
@@ -141,8 +134,8 @@ def init_db():
 
     c.execute("SELECT COUNT(*) FROM categories")
     if c.fetchone()[0] == 0:
-        c.executemany("INSERT INTO categories (name) VALUES (?)", [('رواتب',), ('البرامج والأنشطة',), ('الجوائز والتكريم',), ('دعومات أخرى',)])
-        c.executemany("INSERT INTO subcategories (category_name, name) VALUES (?,?)", [
+        c.executemany("INSERT OR IGNORE INTO categories (name) VALUES (?)", [('رواتب',), ('البرامج والأنشطة',), ('الجوائز والتكريم',), ('دعومات أخرى',)])
+        c.executemany("INSERT OR IGNORE INTO subcategories (category_name, name) VALUES (?,?)", [
             ('رواتب', 'رواتب المعلمين'),
             ('رواتب', 'رواتب الإداريين'),
             ('البرامج والأنشطة', 'برنامج رمضان'),
@@ -432,7 +425,7 @@ elif choice == "🛠️ إدارة وتعاريف النظام":
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 5. RECEIPTS (FIXED ACCURATE SPLITTING)
+# 5. RECEIPTS (ACCURATE MONTHLY SPLIT)
 # ---------------------------------------------------------
 elif choice == "📥 تسجيل المقبوضات":
     st.markdown("<div class='custom-card'>", unsafe_allow_html=True)
@@ -473,6 +466,8 @@ elif choice == "📥 تسجيل المقبوضات":
                     conn.commit()
                     st.success("✅ تم تسجيل المقبوضات للشهر / الأشهر المحددة بنجاح!")
                     st.rerun()
+    else:
+        st.info("يرجى إضافة داعمين أولاً قبل تسجيل المقبوضات.")
     conn.close()
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -512,7 +507,7 @@ elif choice == "💸 تسجيل المصروفات":
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 7. ACCURATE MONTHLY MATRIX (PROBLEM FIXED)
+# 7. MONTHLY MATRIX (PER-MONTH ACCURACY)
 # ---------------------------------------------------------
 elif choice == "🗓️ متابعة الأشهر والالتزامات":
     st.markdown("<div class='custom-card'>", unsafe_allow_html=True)
@@ -548,7 +543,7 @@ elif choice == "🗓️ متابعة الأشهر والالتزامات":
             is_allocated = d['id'] in allocated_donor_ids
             
             for m in MONTHS:
-                # التحقق المباشر من الدفع لهذا الشهر والسنة بخصيصاً
+                # الفحص المباشر للشهر المالي والسنة بدقة متناهية
                 paid = not receipts_df[(receipts_df['donor_id'] == d['id']) & (receipts_df['month'] == m)].empty
                 
                 if paid:
@@ -563,6 +558,8 @@ elif choice == "🗓️ متابعة الأشهر والالتزامات":
             matrix_rows.append(row)
             
         st.dataframe(pd.DataFrame(matrix_rows), use_container_width=True)
+    else:
+        st.info("لا يوجد داعمين مسجلين للنظام بعد.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
