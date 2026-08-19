@@ -10,7 +10,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# تخصيص واجهة المستخدم بالاتجاه من اليمين لليسار (RTL)
+# تخصيص الاتجاه من اليمين لليسار (RTL)
 st.markdown("""
     <style>
     .main { text-align: right; direction: rtl; }
@@ -32,18 +32,18 @@ if not os.path.exists(DONATIONS_FILE):
 
 # إنشاء ملف المتابعة الشهرية إن لم يكن موجوداً
 if not os.path.exists(SCHEDULE_FILE):
-    df_schedule = pd.DataFrame(columns=["السنة", "الشهر", "الداعم / الجهة", "مبلغ الدعم", "تاريخ الدعم الفعلية", "ملاحظات"])
+    df_schedule = pd.DataFrame(columns=["السنة", "الشهر", "الداعم / الجهة", "مبلغ الدعم", "تاريخ الدعم الفعلي", "ملاحظات"])
     df_schedule.to_csv(SCHEDULE_FILE, index=False)
 
 # قراءة البيانات
 df_donations = pd.read_csv(DONATIONS_FILE)
 df_schedule = pd.read_csv(SCHEDULE_FILE)
 
-# تأكد من تحويل عمود السنة إلى رقم صحيح
+# تأكد من تحويل عمود السنة إلى رقم صحيح إن وجد
 if not df_schedule.empty and "السنة" in df_schedule.columns:
     df_schedule["السنة"] = pd.to_numeric(df_schedule["السنة"], errors="coerce").fillna(2026).astype(int)
 
-# 3. القائمة الجانبية والتنقل بين الصفحات
+# 3. القائمة الجانبية للتنقل
 st.sidebar.title("📌 القائمة الرئيسية")
 page = st.sidebar.radio(
     "اختر الصفحة:",
@@ -89,7 +89,6 @@ elif page == "📊 سجل وإحصائيات التبرعات":
     st.header("📊 إحصائيات وسجل التبرعات التفصيلي")
     
     if not df_donations.empty:
-        # ملخص سريع
         c1, c2, c3 = st.columns(3)
         c1.metric("إجمالي التبرعات", f"{df_donations['المبلغ'].sum():,.2f} ريال")
         c2.metric("عدد التبرعات المسجلة", len(df_donations))
@@ -102,26 +101,23 @@ elif page == "📊 سجل وإحصائيات التبرعات":
         st.info("لا توجد تبرعات مسجلة حتى الآن.")
 
 # -------------------------------------------------------------
-# الصفحة الثالثة: جدول متابعة الأشهر (المُعدّلة)
+# الصفحة الثالثة: جدول متابعة الأشهر (المعدلة)
 # -------------------------------------------------------------
 elif page == "🗓️ جدول متابعة الأشهر":
     st.header("🗓️ جدول متابعة دعم الأشهر")
-    st.write("هنا يمكنك تسجيل الدعم المالي لكل شهر وتحديث تاريخ الدعم الفعلي (حتى لو كان بأثر رجعي).")
+    st.write("هنا يمكنك تحديد السنة وتسجيل الدعم والتاريخ الفعلي (حتى لو كان بأثر رجعي).")
 
-    # 1. فلترة وتحديد السنة
+    # تحديد السنة
     col_year, col_space = st.columns([1, 2])
     with col_year:
-        # يتيح لك اختيار أي سنة من 2024 حتى 2030 (يمكن اختيار السنة الحالية افتراضياً)
-        current_year = date.today().year
         selected_year = st.selectbox(
             "📅 اختر السنة للمتابعة:",
             options=list(range(2024, 2031)),
-            index=list(range(2024, 2031)).index(current_year) if current_year in range(2024, 2031) else 2
+            index=2 # الافتراضي سنة 2026
         )
 
     st.subheader(f"📌 إضافة / تحديث دعم شهر لسنة ({selected_year})")
 
-    # قائمة الأشهر
     months_list = [
         "يناير (1)", "فبراير (2)", "مارس (3)", "أبريل (4)",
         "مايو (5)", "يونيو (6)", "يوليو (7)", "أغسطس (8)",
@@ -136,8 +132,7 @@ elif page == "🗓️ جدول متابعة الأشهر":
             support_amount = st.number_input("مبلغ الدعم (بالريال)", min_value=0.0, step=100.0)
 
         with col2:
-            # خيار تحديد هل تم الدعم مع إمكانية إدخال التاريخ بأثر رجعي
-            support_actual_date = st.date_input("تاريخ الدعم الفعلي (يمكن اختياره بأثر رجعي)", value=date.today())
+            support_actual_date = st.date_input("تاريخ الدعم الفعلي (حتى لو بأثر رجعي)", value=date.today())
             has_supported = st.checkbox("تأكيد إتمام الدعم لهذا الشهر", value=True)
             schedule_notes = st.text_input("ملاحظات إضافية")
 
@@ -145,17 +140,16 @@ elif page == "🗓️ جدول متابعة الأشهر":
 
         if submit_schedule:
             if supporter.strip() != "":
-                # تاريخ الدعم المسجل
                 date_str = str(support_actual_date) if has_supported else "لم يتم الدعم بعد"
 
-                # التحقق مما إذا كان السجل موجوداً لنفس السنة والشهر للتحديث
+                # التحقق إذا كان السجل موجوداً لنفس السنة والشهر
                 mask = (df_schedule["السنة"] == selected_year) & (df_schedule["الشهر"] == selected_month)
                 
                 if not df_schedule[mask].empty:
-                    # تحديث السجل الحالي
+                    # تحديث السجل
                     df_schedule.loc[mask, "الداعم / الجهة"] = supporter.strip()
-                    df_schedule.loc[mask, "مبلغ الدعم"] = support_support_amount if 'support_support_amount' in locals() else support_amount
-                    df_schedule.loc[mask, "تاريخ الدعم الفعلية"] = date_str
+                    df_schedule.loc[mask, "مبلغ الدعم"] = support_amount
+                    df_schedule.loc[mask, "تاريخ الدعم الفعلي"] = date_str
                     df_schedule.loc[mask, "ملاحظات"] = schedule_notes.strip()
                 else:
                     # إضافة سجل جديد
@@ -164,7 +158,7 @@ elif page == "🗓️ جدول متابعة الأشهر":
                         "الشهر": [selected_month],
                         "الداعم / الجهة": [supporter.strip()],
                         "مبلغ الدعم": [support_amount],
-                        "تاريخ الدعم الفعلية": [date_str],
+                        "تاريخ الدعم الفعلي": [date_str],
                         "ملاحظات": [schedule_notes.strip()]
                     })
                     df_schedule = pd.concat([df_schedule, new_entry], ignore_index=True)
@@ -177,19 +171,21 @@ elif page == "🗓️ جدول متابعة الأشهر":
 
     st.divider()
 
-    # عرض جدول السنة المختارة فقط
+    # عرض جدول السنة المختارة
     st.subheader(f"📊 جدول دعم الأشهر لسنة {selected_year}")
     
-    # تصفية البيانات حسب السنة المختارة
     year_data = df_schedule[df_schedule["السنة"] == selected_year] if not df_schedule.empty else pd.DataFrame()
 
     if not year_data.empty:
-        # ترتيب العرض
-        display_df = year_data[["الشهر", "الداعم / الجهة", "مبلغ الدعم", "تاريخ الدعم الفعلية", "ملاحظات"]].reset_index(drop=True)
+        # تجهيز العرض
+        cols_to_show = ["الشهر", "الداعم / الجهة", "مبلغ الدعم", "تاريخ الدعم الفعلي", "ملاحظات"]
+        existing_cols = [c for c in cols_to_show if c in year_data.columns]
+        display_df = year_data[existing_cols].reset_index(drop=True)
+        
         st.dataframe(display_df, use_container_width=True)
 
-        # إحصائية بسيطة للسنة المختارة
-        total_year_support = year_data["مبلغ الدعم"].sum()
-        st.info(f"💡 **إجمالي الدعم المسجل لسنة {selected_year}:** {total_year_support:,.2f} ريال")
+        if "مبلغ الدعم" in year_data.columns:
+            total_year_support = year_data["مبلغ الدعم"].sum()
+            st.info(f"💡 **إجمالي الدعم المسجل لسنة {selected_year}:** {total_year_support:,.2f} ريال")
     else:
         st.warning(f"لا توجد بيانات مسجلة لسنة {selected_year} حتى الآن.")
