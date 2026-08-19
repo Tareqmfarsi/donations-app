@@ -64,8 +64,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- DATABASE SETUP (VERSION 3 TO PREVENT DATABASE ERROR WITH NEW COLUMNS) ---
-DB_FILE = "donations_system_v3.db"
+# --- DATABASE SETUP ---
+DB_FILE = "donations_system_v4.db"
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -209,14 +209,17 @@ if choice == "📊 لوحة التحكم المباشرة":
         })
     st.dataframe(pd.DataFrame(summary_data), use_container_width=True)
 
-# --- 2. DONORS MANAGEMENT ---
+# --- 2. DONORS MANAGEMENT WITH INLINE ALLOCATION ---
 elif choice == "➕ إضافة وتعديل الداعمين":
     st.subheader("👥 دليل وتخصيص الداعمين (إضافة - تعديل - حذف)")
     
-    tab_add_d, tab_edit_d = st.tabs(["➕ إضافة داعم جديد", "✏️ تعديل وحذف بيانات داعم"])
+    tab_add_d, tab_edit_d = st.tabs(["➕ إضافة داعم جديد وتخصيص دعمه", "✏️ تعديل وحذف بيانات داعم"])
     conn = get_connection()
     cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
     if not cats: cats = ["رواتب"]
+    
+    teachers_df = pd.read_sql("SELECT name, salary, project FROM teachers", conn)
+    staff_df = pd.read_sql("SELECT name, salary, role FROM staff", conn)
     
     projects_options = get_projects_list() + ["➕ إضافة حلقة جديدة..."]
 
@@ -231,7 +234,7 @@ elif choice == "➕ إضافة وتعديل الداعمين":
         d_name = col_n.text_input("اسم الداعم الكامل")
 
         col1, col2 = st.columns(2)
-        d_project_sel = col1.selectbox("الحلقة / المشروع المخصص", projects_options)
+        d_project_sel = col1.selectbox("الحلقة / المشروع المخصص للداعم", projects_options)
         
         final_project = d_project_sel
         if d_project_sel == "➕ إضافة حلقة جديدة...":
@@ -244,24 +247,75 @@ elif choice == "➕ إضافة وتعديل الداعمين":
         d_type = col2.selectbox("حالة الدعم", ["مستمر", "منقطع / مقطوع"])
         
         monthly_exp = 0.0
-        if d_type == "مستمر":
-            monthly_exp = col1.number_input("المبلغ الشهري المتوقع (ر.س)", min_value=0.0, value=500.0)
+        allocations = []
         
-        d_method = col2.selectbox("طريقة الدعم", ["تحويل بنكي", "نقدي", "مسبق", "لاحق"])
-        d_phone = col1.text_input("رقم الواتساب (مثال: 966500000000)")
+        if d_type == "مستمر":
+            st.markdown("---")
+            st.info("💡 **تخصيص الدعم المباشر:** حدد المبلغ الشهري وقسّمه مباشرة على المستفيدين (معلمين / إداريين).")
+            
+            monthly_exp = st.number_input("💵 إجمالي المبلغ الشهري المتوقع للداعم (ر.س)", min_value=0.0, value=1500.0, step=100.0)
+            
+            st.write("#### 🎯 حدد أين يذهب هذا الدعم الشهري:")
+            
+            num_allocs = st.number_input("كم جهة/شخص تريد تقسيم الدعم عليهم؟", min_value=1, max_value=10, value=2)
+            
+            allocated_total = 0.0
+            
+            for i in range(int(num_allocs)):
+                st.caption(f"📍 التخصيص رقم {i+1}:")
+                ac1, ac2, ac3 = st.columns([1.5, 2, 1.5])
+                
+                b_type = ac1.selectbox(f"نوع المستفيد #{i+1}", ["معلم", "إداري"], key=f"btype_{i}")
+                
+                if b_type == "معلم":
+                    b_opts = teachers_df['name'].tolist() if not teachers_df.empty else ["لا يوجد معلمين مسجلين"]
+                else:
+                    b_opts = staff_df['name'].tolist() if not staff_df.empty else ["لا يوجد إداريين مسجلين"]
+                    
+                b_name = ac2.selectbox(f"اختر الـ {b_type} #{i+1}", b_opts, key=f"bname_{i}")
+                b_amt = ac3.number_input(f"المبلغ المخصص (ر.س) #{i+1}", min_value=0.0, value=500.0 if i==0 else 0.0, step=50.0, key=f"bamt_{i}")
+                
+                allocated_total += b_amt
+                allocations.append({
+                    "b_type": b_type,
+                    "b_name": b_name,
+                    "amount": b_amt
+                })
+            
+            remaining_unalloc = monthly_exp - allocated_total
+            if remaining_unalloc > 0:
+                st.warning(f"⚠️ يوجد مبلغ متبقي من الدعم قدره (**{remaining_unalloc:,.2f} ر.س**) غير مخصص لأي معلم/إداري.")
+            elif remaining_unalloc < 0:
+                st.error(f"❌ المبالغ المخصصة ({allocated_total:,.2f} ر.س) تتجاوز المبلغ الشهري للداعم ({monthly_exp:,.2f} ر.س)!")
+
+        st.markdown("---")
+        d_method = col1.selectbox("طريقة الدعم", ["تحويل بنكي", "نقدي", "مسبق", "لاحق"])
+        d_phone = col2.text_input("رقم الواتساب (مثال: 966500000000)")
         d_notes = st.text_area("ملاحظات أخرى")
         
-        if st.button("💾 حفظ الداعم في النظام") and d_name:
-            c = conn.cursor()
-            if d_project_sel == "➕ إضافة حلقة جديدة..." and final_project:
-                c.execute("INSERT OR IGNORE INTO projects (name, notes) VALUES (?, ?)", (final_project, "أضيفت من شاشة الداعمين"))
-                conn.commit()
+        if st.button("💾 حفظ الداعم والتخصيص في النظام") and d_name:
+            if d_type == "مستمر" and remaining_unalloc < 0:
+                st.error("لا يمكن الحفظ! المبالغ المخصصة أكبر من دعم الداعم الشهري.")
+            else:
+                c = conn.cursor()
+                if d_project_sel == "➕ إضافة حلقة جديدة..." and final_project:
+                    c.execute("INSERT OR IGNORE INTO projects (name, notes) VALUES (?, ?)", (final_project, "أضيفت من شاشة الداعمين"))
+                    conn.commit()
 
-            c.execute("INSERT INTO donors (name, gender, title, project, category, subcategory, support_type, monthly_expected, annual_expected, method, phone, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                      (d_name, d_gender, d_title, final_project, d_cat, d_subcat, d_type, monthly_exp, monthly_exp*12, d_method, d_phone, d_notes))
-            conn.commit()
-            st.success("تم إضافة الداعم وحفظ البيانات بنجاح!")
-            st.rerun()
+                c.execute("INSERT INTO donors (name, gender, title, project, category, subcategory, support_type, monthly_expected, annual_expected, method, phone, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                          (d_name, d_gender, d_title, final_project, d_cat, d_subcat, d_type, monthly_exp, monthly_exp*12, d_method, d_phone, d_notes))
+                donor_id = c.lastrowid
+                
+                # حفظ التخصيصات الفورية
+                if d_type == "مستمر":
+                    for item in allocations:
+                        if item['amount'] > 0 and item['b_name'] not in ["لا يوجد معلمين مسجلين", "لا يوجد إداريين مسجلين"]:
+                            c.execute("INSERT INTO donor_allocations (donor_id, donor_name, beneficiary_type, beneficiary_name, allocated_amount, notes) VALUES (?,?,?,?,?,?)",
+                                      (donor_id, d_name, item['b_type'], item['b_name'], item['amount'], "تخصيص تلقائي عند إضافة الداعم"))
+                
+                conn.commit()
+                st.success("✅ تم إضافة الداعم وتخصيص الدعم بنجاح!")
+                st.rerun()
 
     with tab_edit_d:
         st.write("### ✏️ تعديل أو حذف داعم مسجل")
@@ -327,7 +381,7 @@ elif choice == "🎯 كفالات وتوزيع دعم الداعمين":
     if donors_df.empty:
         st.warning("يرجى إدخال داعمين أولاً.")
     else:
-        st.write("### 📌 إضافة / تخصيص رعاية جديدة")
+        st.write("### 📌 إضافة / تعديل تخصيص رعاية داعم")
         with st.form("add_alloc_form"):
             col1, col2 = st.columns(2)
             sel_d_name = col1.selectbox("اختر الداعم:", donors_df['name'].tolist())
@@ -687,30 +741,51 @@ elif choice == "💸 تسجيل وتعديل المصروفات":
     conn.close()
     st.dataframe(expenses_df, use_container_width=True)
 
-# --- 7. MONTHLY TRACKING ---
+# --- 7. UPDATED MONTHLY TRACKING MATRIX (NOW INCLUDES ALLOCATIONS) ---
 elif choice == "🗓️ جدول متابعة الأشهر والسنوات":
-    st.subheader("🗓️ جدول متابعة التزامات الداعمين")
+    st.subheader("🗓️ جدول متابعة التزامات الداعمين المحدث")
     selected_matrix_year = st.selectbox("📅 اختر السنة:", YEARS_LIST, index=YEARS_LIST.index(2026))
 
     conn = get_connection()
     donors_df = pd.read_sql("SELECT * FROM donors", conn)
     receipts_df = pd.read_sql("SELECT * FROM receipts WHERE year = ?", conn, params=(selected_matrix_year,))
+    allocations_df = pd.read_sql("SELECT donor_id, SUM(allocated_amount) as total_alloc FROM donor_allocations GROUP BY donor_id", conn)
     conn.close()
     
+    st.caption("💡 **دليل الرموز:** (✅) مدفوع أو مخصص ومكفول مستمر | (🚨) غير مدفوع / متأخر | (⚪) داعم منقطع أو غير مستمر")
+
     if not donors_df.empty:
         matrix_rows = []
         for _, d in donors_df.iterrows():
-            row = {"اللقب": d.get('title', 'الأخ'), "اسم الداعم": d['name'], "الحلقة": d['project'], "البند الرئيسي": d['category']}
+            row = {
+                "اللقب": d.get('title', 'الأخ'), 
+                "اسم الداعم": d['name'], 
+                "الحلقة": d['project'], 
+                "البند الرئيسي": d['category'],
+                "حالة الدعم": d['support_type']
+            }
+            
+            # التأكد إن كان له تخصيص مسبق مثبت
+            has_allocation = False
+            if not allocations_df.empty:
+                has_alloc = allocations_df[allocations_df['donor_id'] == d['id']]
+                if not has_alloc.empty and has_alloc['total_alloc'].iloc[0] > 0:
+                    has_allocation = True
+
             for m in MONTHS:
                 if "منقطع" in str(d['support_type']):
                     row[m] = "⚪"
                 else:
                     paid = not receipts_df[(receipts_df['donor_id'] == d['id']) & (receipts_df['month'] == m)].empty
-                    row[m] = "✅" if paid else "🚨"
+                    if paid or has_allocation:
+                        row[m] = "✅"
+                    else:
+                        row[m] = "🚨"
             matrix_rows.append(row)
+            
         st.dataframe(pd.DataFrame(matrix_rows), use_container_width=True)
 
-# --- 8. WHATSAPP REMINDERS (CUSTOMIZED WITH TITLES & GENDER) ---
+# --- 8. WHATSAPP REMINDERS ---
 elif choice == "📱 مركز تذكير الواتساب":
     st.subheader("📱 إرسال تذكيرات الواتساب للداعمين")
     c1, c2 = st.columns(2)
@@ -727,8 +802,6 @@ elif choice == "📱 مركز تذكير الواتساب":
             paid = not receipts_df[receipts_df['donor_id'] == d['id']].empty
             if not paid:
                 phone = str(d['phone']).replace("+", "").replace(" ", "")
-                
-                # تخصيص اللقب والاسم في الرسالة
                 d_title = d.get('title', 'الأخ')
                 
                 msg = f"السلام عليكم ورحمة الله وبركاته،\n{d_title}/ {d['name']} المحترم/ة\n\nنود تذكيركم بدعم شهر ({selected_month}) لسنة ({selected_wa_year}) المخصص لـ ({d['project']}) - وقف الإرتقاء الخيري.\nتقبل الله صالح أعمالكم."
