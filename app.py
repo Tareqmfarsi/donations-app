@@ -63,16 +63,18 @@ def init_db():
     c.execute("CREATE TABLE IF NOT EXISTS teachers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, salary REAL DEFAULT 0, project TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS staff (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, role TEXT, salary REAL DEFAULT 0)")
 
-    # Auto migration
-    for tbl in ['donors', 'receipts', 'expenses']:
-        c.execute(f"PRAGMA table_info({tbl})")
-        cols = [col[1] for col in c.fetchall()]
-        if 'subcategory' not in cols:
-            try: c.execute(f"ALTER TABLE {tbl} ADD COLUMN subcategory TEXT DEFAULT 'عام'")
-            except: pass
-        if tbl in ['receipts', 'expenses'] and 'date_hijri' not in cols:
-            try: c.execute(f"ALTER TABLE {tbl} ADD COLUMN date_hijri TEXT DEFAULT ''")
-            except: pass
+    # New Table: Donor Allocations to Beneficiaries (Teachers / Staff)
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS donor_allocations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        donor_id INTEGER NOT NULL,
+        donor_name TEXT NOT NULL,
+        beneficiary_type TEXT NOT NULL, -- 'معلم' أو 'إداري'
+        beneficiary_name TEXT NOT NULL,
+        allocated_amount REAL NOT NULL,
+        notes TEXT
+    )
+    """)
 
     c.execute("SELECT COUNT(*) FROM categories")
     if c.fetchone()[0] == 0:
@@ -134,7 +136,8 @@ with st.sidebar:
             "اختر الشاشة:",
             [
                 "📊 لوحة التحكم المباشرة",
-                "➕ مركز الإضافات وإدارة العناصر",
+                "🛠️ إدارة وتعريف وتعديل العناصر",
+                "🎯 كفالات وتوزيع دعم الداعمين",
                 "👥 دليل الداعمين وتعديل البيانات",
                 "📥 تسجيل وتعديل المقبوضات",
                 "💸 تسجيل وتعديل المصروفات",
@@ -149,7 +152,7 @@ with st.sidebar:
 st.markdown("""
 <div class='main-header'>
     <h2>🕌 وقف الإرتقاء الخيري</h2>
-    <p>نظام إدارة المقبوضات والمصروفات والداعمين</p>
+    <p>نظام إدارة المقبوضات والمصروفات والداعمين والكفالات</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -190,90 +193,74 @@ if choice == "📊 لوحة التحكم المباشرة":
         })
     st.dataframe(pd.DataFrame(summary_data), use_container_width=True)
 
-# --- 2. CENTER FOR ADDITIONS AND DELETIONS ---
-elif choice == "➕ مركز الإضافات وإدارة العناصر":
-    st.subheader("➕ مركز الإضافات وإدارة وتعديل العناصر")
+# --- 2. MANAGEMENT & EDITING OF ALL ENTITIES ---
+elif choice == "🛠️ إدارة وتعريف وتعديل العناصر":
+    st.subheader("🛠️ مركز إضافة، تعديل، وحذف العناصر الأساسية")
     
-    tab_donor, tab_proj, tab_cats, tab_teach, tab_staff = st.tabs([
-        "👤 الداعمين", 
-        "🕌 الحلقات/المشاريع", 
-        "🏷️ البنود", 
-        "👨‍🏫 المعلمين", 
-        "👔 الإداريين"
+    tab_proj, tab_cats, tab_teach, tab_staff = st.tabs([
+        "🕌 الحلقات والمشاريع", 
+        "🏷️ البنود الرئيسية والفرعية", 
+        "👨‍🏫 المعلمون", 
+        "👔 الإداريون"
     ])
     
     conn = get_connection()
     cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
     if not cats: cats = ["رواتب"]
     projects_list = get_projects_list()
-    
-    # 1. DONOR MANAGMENT
-    with tab_donor:
-        st.write("### 👤 إضافة وتعديل الداعمين")
-        with st.form("add_donor_central_form"):
-            col1, col2 = st.columns(2)
-            d_name = col1.text_input("اسم الداعم")
-            d_project = col2.selectbox("الحلقة / المشروع المخصص", projects_list)
-            
-            d_cat = col1.selectbox("البند الرئيسي", cats)
-            d_subcat = col2.selectbox("البند الفرعي", get_subcategories(d_cat))
-            d_type = col1.selectbox("حالة الدعم", ["مستمر", "منقطع / مقطوع"])
-            
-            monthly_exp = 0.0
-            if d_type == "مستمر":
-                monthly_exp = col2.number_input("المبلغ المتوقع شهرياً (ر.س)", min_value=0.0, value=500.0)
-            
-            d_method = col1.selectbox("طريقة الدعم", ["مسبق", "لاحق", "تحويل بنكي", "نقدي"])
-            d_phone = col2.text_input("رقم الواتساب (مثال: 966500000000)")
-            d_notes = st.text_area("ملاحظات")
-            
-            if st.form_submit_button("💾 حفظ الداعم") and d_name:
-                c = conn.cursor()
-                c.execute("INSERT INTO donors (name, project, category, subcategory, support_type, monthly_expected, annual_expected, method, phone, notes) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                          (d_name, d_project, d_cat, d_subcat, d_type, monthly_exp, monthly_exp*12, d_method, d_phone, d_notes))
-                conn.commit()
-                st.success("تم إضافة الداعم بنجاح!")
-                st.rerun()
 
-    # 2. PROJECTS MANAGEMENT
+    # 1. PROJECTS MANAGEMENT
     with tab_proj:
-        st.write("### 🕌 إضافة وإزالة الحلقات والمشاريع")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.write("**إضافة حلقة جديدة:**")
-            with st.form("add_project_form"):
+        st.write("### 🕌 إدارة الحلقات والمشاريع")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write("**➕ إضافة حلقة جديدة:**")
+            with st.form("add_proj_f"):
                 p_name = st.text_input("اسم الحلقة / المشروع")
-                p_notes = st.text_area("وصف أو ملاحظات")
-                if st.form_submit_button("💾 إضافة الحلقة") and p_name:
+                p_notes = st.text_area("ملاحظات")
+                if st.form_submit_button("حفظ الحلقة") and p_name:
                     try:
                         c = conn.cursor()
                         c.execute("INSERT INTO projects (name, notes) VALUES (?,?)", (p_name.strip(), p_notes))
                         conn.commit()
-                        st.success("تم إضافتها بنجاح!")
+                        st.success("تم الإضافة!")
                         st.rerun()
-                    except: st.error("اسم الحلقة موجود مسبقاً.")
+                    except: st.error("الحلقة موجودة بالفعل.")
 
-        with col_b:
-            st.write("**حذف حلقة/مشروع:**")
-            projects_df = pd.read_sql("SELECT * FROM projects", conn)
-            if not projects_df.empty:
-                del_proj = st.selectbox("اختر الحلقة للحذف:", projects_df['name'].tolist())
-                if st.button("🗑️ حذف الحلقة المختارة"):
-                    c = conn.cursor()
-                    c.execute("DELETE FROM projects WHERE name=?", (del_proj,))
-                    conn.commit()
-                    st.warning("تم الحذف بنجاح!")
-                    st.rerun()
+        with c2:
+            st.write("**✏️ تعديل / 🗑️ حذف حلقة:**")
+            projs_df = pd.read_sql("SELECT * FROM projects", conn)
+            if not projs_df.empty:
+                sel_p = st.selectbox("اختر الحلقة:", projs_df['name'].tolist(), key="p_edit_sel")
+                p_data = projs_df[projs_df['name'] == sel_p].iloc[0]
+                
+                with st.form("edit_proj_f"):
+                    new_p_name = st.text_input("اسم الحلقة المعدل", value=p_data['name'])
+                    new_p_notes = st.text_area("الملاحظات المعدلة", value=str(p_data['notes'] or ''))
+                    
+                    b1, b2 = st.columns(2)
+                    if b1.form_submit_button("تحديث"):
+                        c = conn.cursor()
+                        c.execute("UPDATE projects SET name=?, notes=? WHERE id=?", (new_p_name, new_p_notes, int(p_data['id'])))
+                        conn.commit()
+                        st.success("تم التعديل!")
+                        st.rerun()
+                    if b2.form_submit_button("حذف"):
+                        c = conn.cursor()
+                        c.execute("DELETE FROM projects WHERE id=?", (int(p_data['id']),))
+                        conn.commit()
+                        st.warning("تم الحذف!")
+                        st.rerun()
 
         st.divider()
-        st.dataframe(pd.read_sql("SELECT name as 'اسم الحلقة/المشروع', notes as 'الملاحظات' FROM projects", conn), use_container_width=True)
+        st.dataframe(pd.read_sql("SELECT id as 'م', name as 'اسم الحلقة', notes as 'الملاحظات' FROM projects", conn), use_container_width=True)
 
-    # 3. CATEGORIES MANAGEMENT
+    # 2. CATEGORIES MANAGEMENT
     with tab_cats:
-        st.write("### 🏷️ إضافة وحذف البنود")
+        st.write("### 🏷️ إدارة البنود الرئيسية والفرعية")
         col1, col2 = st.columns(2)
         with col1:
-            st.write("**إضافة/حذف بند رئيسي:**")
+            st.write("**➕ إضافة بند رئيسي:**")
             new_cat = st.text_input("اسم البند الرئيسي الجديد")
             if st.button("حفظ الرئيسي") and new_cat:
                 try:
@@ -285,18 +272,29 @@ elif choice == "➕ مركز الإضافات وإدارة العناصر":
                 except: st.error("البند موجود بالفعل.")
             
             st.divider()
-            del_cat = st.selectbox("حذف بند رئيسي:", cats)
-            if st.button("🗑️ حذف البند الرئيسي"):
+            st.write("**✏️ تعديل / 🗑️ حذف بند رئيسي:**")
+            edit_cat_target = st.selectbox("اختر البند للتحرير:", cats, key="cat_target")
+            renamed_cat = st.text_input("الاسم الجديد للبند الرئيسي:", value=edit_cat_target)
+            
+            cb1, cb2 = st.columns(2)
+            if cb1.button("تحديث البند الرئيسي"):
                 c = conn.cursor()
-                c.execute("DELETE FROM categories WHERE name=?", (del_cat,))
-                c.execute("DELETE FROM subcategories WHERE category_name=?", (del_cat,))
+                c.execute("UPDATE categories SET name=? WHERE name=?", (renamed_cat, edit_cat_target))
+                c.execute("UPDATE subcategories SET category_name=? WHERE category_name=?", (renamed_cat, edit_cat_target))
+                conn.commit()
+                st.success("تم التحديث!")
+                st.rerun()
+            if cb2.button("حذف البند الرئيسي"):
+                c = conn.cursor()
+                c.execute("DELETE FROM categories WHERE name=?", (edit_cat_target,))
+                c.execute("DELETE FROM subcategories WHERE category_name=?", (edit_cat_target,))
                 conn.commit()
                 st.warning("تم الحذف!")
                 st.rerun()
 
         with col2:
-            st.write("**إضافة بند فرعي:**")
-            parent_cat = st.selectbox("البند الرئيسي الأب", cats)
+            st.write("**➕ إضافة بند فرعي:**")
+            parent_cat = st.selectbox("البند الرئيسي الأب", cats, key="parent_c")
             new_subcat = st.text_input("اسم البند الفرعي الجديد")
             if st.button("حفظ الفرعي") and new_subcat:
                 c = conn.cursor()
@@ -308,75 +306,174 @@ elif choice == "➕ مركز الإضافات وإدارة العناصر":
         st.divider()
         st.dataframe(pd.read_sql("SELECT category_name as 'البند الرئيسي', name as 'البند الفرعي' FROM subcategories", conn), use_container_width=True)
 
-    # 4. TEACHERS MANAGEMENT
+    # 3. TEACHERS MANAGEMENT
     with tab_teach:
         st.write("### 👨‍🏫 إدارة المعلمين")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("**إضافة معلم:**")
-            with st.form("add_teacher_form"):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write("**➕ إضافة معلم جديد:**")
+            with st.form("add_teach_f"):
                 t_name = st.text_input("اسم المعلم")
                 t_phone = st.text_input("رقم التواصل")
                 t_salary = st.number_input("الراتب الشهري (ر.س)", min_value=0.0, value=1500.0)
                 t_project = st.selectbox("الحلقة المكلّف بها", projects_list)
-                if st.form_submit_button("💾 حفظ المعلم") and t_name:
+                if st.form_submit_button("حفظ المعلم") and t_name:
                     c = conn.cursor()
                     c.execute("INSERT INTO teachers (name, phone, salary, project) VALUES (?,?,?,?)", (t_name, t_phone, t_salary, t_project))
                     conn.commit()
                     st.success("تم التسجيل!")
                     st.rerun()
 
-        with col2:
-            st.write("**حذف معلم:**")
-            teachers_df = pd.read_sql("SELECT * FROM teachers", conn)
-            if not teachers_df.empty:
-                del_teacher = st.selectbox("اختر المعلم للحذف:", teachers_df['name'].tolist())
-                if st.button("🗑️ حذف المعلم"):
-                    c = conn.cursor()
-                    c.execute("DELETE FROM teachers WHERE name=?", (del_teacher,))
-                    conn.commit()
-                    st.warning("تم الحذف!")
-                    st.rerun()
+        with c2:
+            st.write("**✏️ تعديل / 🗑️ حذف معلم:**")
+            teach_df = pd.read_sql("SELECT * FROM teachers", conn)
+            if not teach_df.empty:
+                sel_t = st.selectbox("اختر المعلم:", teach_df['name'].tolist(), key="t_edit_sel")
+                t_data = teach_df[teach_df['name'] == sel_t].iloc[0]
+                
+                with st.form("edit_teach_f"):
+                    ed_t_name = st.text_input("اسم المعلم", value=t_data['name'])
+                    ed_t_phone = st.text_input("الهاتف", value=str(t_data['phone'] or ''))
+                    ed_t_salary = st.number_input("الراتب الشهري", value=float(t_data['salary']))
+                    ed_t_proj = st.selectbox("الحلقة", projects_list, index=projects_list.index(t_data['project']) if t_data['project'] in projects_list else 0)
+                    
+                    tb1, tb2 = st.columns(2)
+                    if tb1.form_submit_button("تحديث"):
+                        c = conn.cursor()
+                        c.execute("UPDATE teachers SET name=?, phone=?, salary=?, project=? WHERE id=?", (ed_t_name, ed_t_phone, ed_t_salary, ed_t_proj, int(t_data['id'])))
+                        conn.commit()
+                        st.success("تم التعديل!")
+                        st.rerun()
+                    if tb2.form_submit_button("حذف"):
+                        c = conn.cursor()
+                        c.execute("DELETE FROM teachers WHERE id=?", (int(t_data['id']),))
+                        conn.commit()
+                        st.warning("تم الحذف!")
+                        st.rerun()
 
         st.divider()
         st.dataframe(pd.read_sql("SELECT name as 'اسم المعلم', phone as 'الهاتف', salary as 'الراتب', project as 'الحلقة' FROM teachers", conn), use_container_width=True)
 
-    # 5. STAFF MANAGEMENT
+    # 4. STAFF MANAGEMENT
     with tab_staff:
         st.write("### 👔 إدارة الإداريين")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("**إضافة إداري:**")
-            with st.form("add_staff_form"):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write("**➕ إضافة إداري جديد:**")
+            with st.form("add_staff_f"):
                 s_name = st.text_input("اسم الإداري")
                 s_role = st.text_input("المسمى الوظيفي")
                 s_phone = st.text_input("رقم الجوال")
                 s_salary = st.number_input("الراتب الشهري (ر.س)", min_value=0.0, value=2500.0)
-                if st.form_submit_button("💾 حفظ الإداري") and s_name:
+                if st.form_submit_button("حفظ الإداري") and s_name:
                     c = conn.cursor()
                     c.execute("INSERT INTO staff (name, phone, role, salary) VALUES (?,?,?,?)", (s_name, s_phone, s_role, s_salary))
                     conn.commit()
                     st.success("تم التسجيل!")
                     st.rerun()
 
-        with col2:
-            st.write("**حذف إداري:**")
+        with c2:
+            st.write("**✏️ تعديل / 🗑️ حذف إداري:**")
             staff_df = pd.read_sql("SELECT * FROM staff", conn)
             if not staff_df.empty:
-                del_staff = st.selectbox("اختر الإداري للحذف:", staff_df['name'].tolist())
-                if st.button("🗑️ حذف الإداري"):
-                    c = conn.cursor()
-                    c.execute("DELETE FROM staff WHERE name=?", (del_staff,))
-                    conn.commit()
-                    st.warning("تم الحذف!")
-                    st.rerun()
+                sel_s = st.selectbox("اختر الإداري:", staff_df['name'].tolist(), key="s_edit_sel")
+                s_data = staff_df[staff_df['name'] == sel_s].iloc[0]
+                
+                with st.form("edit_staff_f"):
+                    ed_s_name = st.text_input("الاسم", value=s_data['name'])
+                    ed_s_role = st.text_input("المسمى الوظيفي", value=s_data['role'])
+                    ed_s_phone = st.text_input("الهاتف", value=str(s_data['phone'] or ''))
+                    ed_s_salary = st.number_input("الراتب", value=float(s_data['salary']))
+                    
+                    sb1, sb2 = st.columns(2)
+                    if sb1.form_submit_button("تحديث"):
+                        c = conn.cursor()
+                        c.execute("UPDATE staff SET name=?, role=?, phone=?, salary=? WHERE id=?", (ed_s_name, ed_s_role, ed_s_phone, ed_s_salary, int(s_data['id'])))
+                        conn.commit()
+                        st.success("تم التعديل!")
+                        st.rerun()
+                    if sb2.form_submit_button("حذف"):
+                        c = conn.cursor()
+                        c.execute("DELETE FROM staff WHERE id=?", (int(s_data['id']),))
+                        conn.commit()
+                        st.warning("تم الحذف!")
+                        st.rerun()
 
         st.divider()
         st.dataframe(pd.read_sql("SELECT name as 'اسم الإداري', role as 'الوظيفة', phone as 'الهاتف', salary as 'الراتب' FROM staff", conn), use_container_width=True)
 
     conn.close()
 
-# --- 3. DONORS DIRECTORY ---
+# --- 3. ALLOCATIONS & SPONSORSHIP SYSTEM ---
+elif choice == "🎯 كفالات وتوزيع دعم الداعمين":
+    st.subheader("🎯 توزيع كفالات ودعم الداعمين (ربط الداعم بالمعلمين والإداريين)")
+    
+    conn = get_connection()
+    donors_df = pd.read_sql("SELECT * FROM donors", conn)
+    teachers_list = pd.read_sql("SELECT name FROM teachers", conn)['name'].tolist()
+    staff_list = pd.read_sql("SELECT name FROM staff", conn)['name'].tolist()
+    
+    if donors_df.empty:
+        st.warning("يرجى إدخال داعمين أولاً.")
+    else:
+        st.write("### 📌 إضافة / تخصيص رعاية جديدة")
+        with st.form("add_alloc_form"):
+            col1, col2 = st.columns(2)
+            sel_d_name = col1.selectbox("اختر الداعم:", donors_df['name'].tolist())
+            d_info = donors_df[donors_df['name'] == sel_d_name].iloc[0]
+            
+            # Get existing allocations for this donor
+            alloc_existing = pd.read_sql("SELECT SUM(allocated_amount) as sum_a FROM donor_allocations WHERE donor_id=?", conn, params=(int(d_info['id']),))
+            allocated_so_far = alloc_existing['sum_a'].iloc[0] if alloc_existing['sum_a'].iloc[0] else 0.0
+            remaining_unalloc = float(d_info['monthly_expected']) - allocated_so_far
+            
+            st.info(f"💡 إجمالي دعم الداعم ({sel_d_name}): **{d_info['monthly_expected']} ر.س** | المُوزّع حالياً: **{allocated_so_far} ر.س** | المتبقي غير الموزع: **{remaining_unalloc} ر.س**")
+            
+            b_type = col1.selectbox("جهة التخصيص:", ["معلم", "إداري"])
+            b_list = teachers_list if b_type == "معلم" else staff_list
+            
+            if not b_list:
+                st.error(f"لا يوجد {b_type}ين مسجلين في النظام. أضفهم أولاً من صفحة التعريفات.")
+                target_ben = None
+            else:
+                target_ben = col2.selectbox(f"اختر الـ {b_type}:", b_list)
+            
+            alloc_amt = col2.number_input("المبلغ المخصص شهرياً (ر.س)", min_value=1.0, value=remaining_unalloc if remaining_unalloc > 0 else 500.0)
+            alloc_notes = st.text_area("ملاحظات / بيان التخصيص")
+            
+            if st.form_submit_button("💾 حفظ تخصيص الدعم") and target_ben:
+                c = conn.cursor()
+                c.execute("INSERT INTO donor_allocations (donor_id, donor_name, beneficiary_type, beneficiary_name, allocated_amount, notes) VALUES (?,?,?,?,?,?)",
+                          (int(d_info['id']), d_info['name'], b_type, target_ben, alloc_amt, alloc_notes))
+                conn.commit()
+                st.success("تم تخصيص المبلغ بنجاح!")
+                st.rerun()
+
+    st.divider()
+    
+    # VIEW ALLOCATIONS BY BENEFICIARY OR DONOR
+    st.write("### 🔍 كشف التغطيات والرعايات المسجلة")
+    v_tab1, v_tab2 = st.tabs(["📊 حسب المعلم / الإداري (من يبسط يده بدعمه؟)", "👤 حسب الداعم (كيف يتوزع دعمه؟)"])
+    
+    with v_tab1:
+        st.write("**كشف الرعاية المخصصة لكل شخص:**")
+        all_bens = teachers_list + staff_list
+        if all_bens:
+            sel_target_ben = st.selectbox("اختر المعلم أو الإداري لرؤية داعميه:", all_bens)
+            ben_alloc_df = pd.read_sql("SELECT donor_name as 'اسم الداعم', beneficiary_type as 'الجهة', allocated_amount as 'المبلغ المخصص (ر.س)', notes as 'ملاحظات' FROM donor_allocations WHERE beneficiary_name=?", conn, params=(sel_target_ben,))
+            
+            tot_covered = ben_alloc_df['المبلغ المخصص (ر.س)'].sum() if not ben_alloc_df.empty else 0.0
+            st.metric(f"إجمالي الدعم المغطى لـ ({sel_target_ben})", f"{tot_covered:,.2f} ر.س")
+            st.dataframe(ben_alloc_df, use_container_width=True)
+            
+    with v_tab2:
+        st.write("**جدول توزيعات جميع الداعمين:**")
+        all_alloc_df = pd.read_sql("SELECT donor_name as 'الداعم', beneficiary_type as 'نوع المستفيد', beneficiary_name as 'المستفيد (المعلم/الإداري)', allocated_amount as 'المبلغ المخصص', notes as 'ملاحظات' FROM donor_allocations", conn)
+        st.dataframe(all_alloc_df, use_container_width=True)
+
+    conn.close()
+
+# --- 4. DONORS DIRECTORY ---
 elif choice == "👥 دليل الداعمين وتعديل البيانات":
     st.subheader("👥 دليل الداعمين وتعديل/حذف البيانات")
     conn = get_connection()
@@ -411,6 +508,7 @@ elif choice == "👥 دليل الداعمين وتعديل البيانات":
             if b2.form_submit_button("🗑️ حذف الداعم بالكامل"):
                 c = conn.cursor()
                 c.execute("DELETE FROM donors WHERE id=?", (int(d_data['id']),))
+                c.execute("DELETE FROM donor_allocations WHERE donor_id=?", (int(d_data['id']),))
                 conn.commit()
                 st.warning("تم الحذف.")
                 st.rerun()
@@ -419,7 +517,7 @@ elif choice == "👥 دليل الداعمين وتعديل البيانات":
     st.dataframe(donors_df_all, use_container_width=True)
     conn.close()
 
-# --- 4. RECEIPTS ---
+# --- 5. RECEIPTS ---
 elif choice == "📥 تسجيل وتعديل المقبوضات":
     st.subheader("📥 تسجيل المقبوضات")
     conn = get_connection()
@@ -460,7 +558,7 @@ elif choice == "📥 تسجيل وتعديل المقبوضات":
     conn.close()
     st.dataframe(receipts_df, use_container_width=True)
 
-# --- 5. EXPENSES ---
+# --- 6. EXPENSES ---
 elif choice == "💸 تسجيل وتعديل المصروفات":
     st.subheader("💸 تسجيل المصروفات")
     conn = get_connection()
@@ -492,7 +590,7 @@ elif choice == "💸 تسجيل وتعديل المصروفات":
     conn.close()
     st.dataframe(expenses_df, use_container_width=True)
 
-# --- 6. MONTHLY TRACKING ---
+# --- 7. MONTHLY TRACKING ---
 elif choice == "🗓️ جدول متابعة الأشهر والسنوات":
     st.subheader("🗓️ جدول متابعة التزامات الداعمين")
     selected_matrix_year = st.selectbox("📅 اختر السنة:", YEARS_LIST, index=YEARS_LIST.index(2026))
@@ -515,7 +613,7 @@ elif choice == "🗓️ جدول متابعة الأشهر والسنوات":
             matrix_rows.append(row)
         st.dataframe(pd.DataFrame(matrix_rows), use_container_width=True)
 
-# --- 7. WHATSAPP REMINDERS ---
+# --- 8. WHATSAPP REMINDERS ---
 elif choice == "📱 مركز تذكير الواتساب":
     st.subheader("📱 إرسال تذكيرات الواتساب")
     c1, c2 = st.columns(2)
@@ -539,7 +637,7 @@ elif choice == "📱 مركز تذكير الواتساب":
                 col_a.write(f"👤 **{d['name']}** - ({d['project']})")
                 col_b.markdown(f"[📲 إرسال واتساب]({wa_url})", unsafe_allow_html=True)
 
-# --- 8. DYNAMIC REPORTS & EXPORT ---
+# --- 9. DYNAMIC REPORTS & EXPORT ---
 elif choice == "🖨️ التقارير القابلة للطباعة والتصدير":
     st.subheader("🖨️ مركز التقارير المخصصة والتصدير")
     
@@ -554,7 +652,6 @@ elif choice == "🖨️ التقارير القابلة للطباعة والت�
     rep_period = col2.selectbox("الفترة الزمنية:", ["سنوي شامل", "شهري", "ربع سنوي (Q1-Q4)", "نصف سنوي"])
     rep_year = col3.selectbox("السنة المالية:", YEARS_LIST, index=YEARS_LIST.index(2026))
     
-    # Target selection
     target_filter = None
     if rep_type == "تقرير داعم معين":
         target_filter = st.selectbox("اختر الداعم:", donors_list if donors_list else ["لا يوجد"])
@@ -563,7 +660,6 @@ elif choice == "🖨️ التقارير القابلة للطباعة والت�
     elif rep_type == "تقرير بند معين":
         target_filter = st.selectbox("اختر البند:", categories_list if categories_list else ["رواتب"])
 
-    # Month/Period selection
     months_filter = MONTHS
     if rep_period == "شهري":
         m_selected = st.selectbox("اختر الشهر:", MONTHS)
@@ -578,12 +674,10 @@ elif choice == "🖨️ التقارير القابلة للطباعة والت�
         h_selected = st.selectbox("اختر النصف:", ["النصف الأول (يناير - يونيو)", "النصف الثاني (يوليو - ديسمبر)"])
         months_filter = MONTHS[0:6] if "الأول" in h_selected else MONTHS[6:12]
 
-    # Fetch data
     receipts_df = pd.read_sql("SELECT * FROM receipts WHERE year=?", conn, params=(rep_year,))
     expenses_df = pd.read_sql("SELECT * FROM expenses WHERE year=?", conn, params=(rep_year,))
     conn.close()
 
-    # Apply Filters
     if not receipts_df.empty:
         receipts_df = receipts_df[receipts_df['month'].isin(months_filter)]
         if rep_type == "تقرير داعم معين" and target_filter:
@@ -595,13 +689,12 @@ elif choice == "🖨️ التقارير القابلة للطباعة والت�
 
     if not expenses_df.empty:
         if rep_type == "تقرير حلقة/مشروع معين" and target_filter:
-            expenses_df = pd.DataFrame() # Expenses usually don't have project bound directly
+            expenses_df = pd.DataFrame()
         elif rep_type == "تقرير بند معين" and target_filter:
             expenses_df = expenses_df[expenses_df['category'] == target_filter]
 
     st.divider()
     
-    # Display Stats
     tot_rec = receipts_df['amount'].sum() if not receipts_df.empty else 0.0
     tot_exp = expenses_df['amount'].sum() if not expenses_df.empty else 0.0
     
@@ -616,7 +709,6 @@ elif choice == "🖨️ التقارير القابلة للطباعة والت�
     st.write("### 💸 تفاصيل المصروفات")
     st.dataframe(expenses_df, use_container_width=True)
 
-    # Export
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         receipts_df.to_excel(writer, sheet_name='المقبوضات', index=False)
