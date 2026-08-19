@@ -4,7 +4,6 @@ import sqlite3
 import datetime
 import urllib.parse
 from io import BytesIO
-from umalqurra.hijri_date import HijriDate
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -73,7 +72,6 @@ st.markdown("""
         box-shadow: 0 4px 10px rgba(0,0,0,0.15);
     }
 
-    /* Styling Sidebar Navigation Buttons */
     div[data-testid="stSidebar"] div.stRadio > div {
         gap: 8px;
     }
@@ -94,15 +92,45 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Helper function to format Greg to Hijri
+# Helper function to convert Gregorian to Approximate Hijri without external libraries
 def get_hijri_str(dt):
     try:
-        h = HijriDate.get_hijri_date(dt)
+        # Standard Kuwaiti Algorithm for Hijri conversion
+        day = dt.day
+        month = dt.month
+        year = dt.year
+        
+        m = month
+        y = year
+        if m < 3:
+            y -= 1
+            m += 12
+            
+        a = math.floor(y / 100)
+        b = 2 - a + math.floor(a / 4)
+        jd = math.floor(365.25 * (y + 4716)) + math.floor(30.6001 * (m + 1)) + day + b - 1524.5
+        
+        z = jd - 1948439.5
+        cyc = math.floor(z / 10631)
+        z -= cyc * 10631
+        
+        hy = math.floor((z - 0.5) / 354.366)
+        z -= math.floor(hy * 354.366 + 0.5)
+        
+        hm = math.floor((z + 28.5) / 29.5)
+        hd = math.floor(z - math.floor(hm * 29.5 - 28.5))
+        
+        h_year = int(cyc * 30 + hy + 1)
+        h_month = int(hm)
+        h_day = int(hd)
+        
         months_ar = ["محرم", "صفر", "ربيع الأول", "ربيع الثاني", "جمادى الأولى", "جمادى الآخرة", "رجب", "شعبان", "رمضان", "شوال", "ذو القعدة", "ذو الحجة"]
-        month_name = months_ar[int(h.month) - 1]
-        return f"{int(h.day)} {month_name} {int(h.year)} هـ"
+        m_name = months_ar[h_month - 1] if 1 <= h_month <= 12 else ""
+        return f"{h_day} {m_name} {h_year} هـ"
     except:
         return f"{dt.strftime('%Y-%m-%d')} هـ"
+
+import math
 
 # --- DATABASE SETUP ---
 DB_FILE = "donations_system.db"
@@ -111,18 +139,12 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
-    # Tables creation
     c.execute("CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)")
-    
     c.execute("CREATE TABLE IF NOT EXISTS subcategories (id INTEGER PRIMARY KEY AUTOINCREMENT, category_name TEXT NOT NULL, name TEXT NOT NULL)")
-                
     c.execute("CREATE TABLE IF NOT EXISTS donors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, project TEXT NOT NULL, category TEXT NOT NULL, subcategory TEXT DEFAULT 'عام', support_type TEXT NOT NULL, monthly_expected REAL DEFAULT 0, annual_expected REAL DEFAULT 0, method TEXT NOT NULL, phone TEXT, notes TEXT)")
-                
     c.execute("CREATE TABLE IF NOT EXISTS receipts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, donor_id INTEGER, donor_name TEXT, project TEXT, category TEXT, subcategory TEXT DEFAULT 'عام', amount REAL NOT NULL, month TEXT NOT NULL, year INTEGER DEFAULT 2026)")
-                
     c.execute("CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, beneficiary TEXT NOT NULL, category TEXT NOT NULL, subcategory TEXT DEFAULT 'عام', amount REAL NOT NULL, notes TEXT, year INTEGER DEFAULT 2026)")
                 
-    # Insert default main & sub categories
     c.execute("SELECT COUNT(*) FROM categories")
     if c.fetchone()[0] == 0:
         default_cats = [('رواتب',), ('البرامج والأنشطة',), ('الجوائز والتكريم',), ('دعومات أخرى',)]
@@ -160,7 +182,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Navigation Menu as visible Radio Buttons on the right sidebar
 st.sidebar.title("📌 أجزاء النظام")
 menu = [
     "📊 لوحة التحكم المباشرة",
@@ -182,7 +203,6 @@ YEARS_LIST = list(range(2024, 2031))
 # --- 1. DASHBOARD ---
 if choice == "📊 لوحة التحكم المباشرة":
     st.header("📊 لوحة التحكم والتحليل المالي - وقف الإرتقاء الخيري")
-    
     selected_dash_year = st.selectbox("📅 اختر سنة التقرير:", YEARS_LIST, index=YEARS_LIST.index(2026) if 2026 in YEARS_LIST else 0)
     
     conn = get_connection()
