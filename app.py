@@ -71,7 +71,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- DATABASE SETUP ---
+# --- DATABASE SETUP & AUTO MIGRATION ---
 DB_FILE = "donations_system.db"
 
 def init_db():
@@ -98,6 +98,17 @@ def init_db():
         notes TEXT
     )
     """)
+
+    # --- AUTO MIGRATION TO PREVENT COLUMN ERRORS ---
+    def add_col_if_not_exists(table, col, col_type):
+        try:
+            c.execute(f"SELECT {col} FROM {table} LIMIT 1")
+        except sqlite3.OperationalError:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+
+    add_col_if_not_exists("donors", "subcategory", "TEXT DEFAULT 'عام'")
+    add_col_if_not_exists("receipts", "subcategory", "TEXT DEFAULT 'عام'")
+    add_col_if_not_exists("expenses", "subcategory", "TEXT DEFAULT 'عام'")
 
     c.execute("SELECT COUNT(*) FROM categories")
     if c.fetchone()[0] == 0:
@@ -216,7 +227,7 @@ if choice == "📊 لوحة التحكم المباشرة":
         })
     st.dataframe(pd.DataFrame(summary_data), use_container_width=True)
 
-# --- 2. DONORS FULL MANAGEMENT (ADD, EDIT, DELETE) ---
+# --- 2. DONORS FULL MANAGEMENT ---
 elif choice == "➕ إضافة وتعديل الداعمين":
     st.subheader("👥 دليل وتخصيص الداعمين (إضافة - تعديل - حذف)")
     
@@ -224,34 +235,49 @@ elif choice == "➕ إضافة وتعديل الداعمين":
     conn = get_connection()
     cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
     if not cats: cats = ["رواتب"]
-    projects_list = get_projects_list()
+    
+    # قائمة الحلقات مع خيار إضافة حلقة جديدة
+    projects_options = get_projects_list() + ["➕ إضافة حلقة جديدة..."]
 
     with tab_add_d:
-        st.write("### ➕ تسجل بيانات داعم جديد")
-        with st.form("add_donor_form"):
-            col1, col2 = st.columns(2)
-            d_name = col1.text_input("اسم الداعم الكامل")
-            d_project = col2.selectbox("الحلقة / المشروع المخصص", projects_list)
+        st.write("### ➕ تسجيل بيانات داعم جديد")
+        
+        col1, col2 = st.columns(2)
+        d_name = col1.text_input("اسم الداعم الكامل")
+        d_project_sel = col2.selectbox("الحلقة / المشروع المخصص", projects_options)
+        
+        # إذا اختار إضافة حلقة جديدة
+        final_project = d_project_sel
+        if d_project_sel == "➕ إضافة حلقة جديدة...":
+            new_p_input = col2.text_input("📝 اكتب اسم الحلقة الجديدة لتسجيلها:")
+            if new_p_input:
+                final_project = new_p_input.strip()
+
+        d_cat = col1.selectbox("البند الرئيسي", cats)
+        d_subcat = col2.selectbox("البند الفرعي", get_subcategories(d_cat))
+        d_type = col1.selectbox("حالة الدعم", ["مستمر", "منقطع / مقطوع"])
+        
+        monthly_exp = 0.0
+        if d_type == "مستمر":
+            monthly_exp = col2.number_input("المبلغ الشهري المتوقع (ر.س)", min_value=0.0, value=500.0)
+        
+        d_method = col1.selectbox("طريقة الدعم", ["تحويل بنكي", "نقدي", "مسبق", "لاحق"])
+        d_phone = col2.text_input("رقم الواتساب (مثال: 966500000000)")
+        d_notes = st.text_area("ملاحظات أخرى")
+        
+        if st.button("💾 حفظ الداعم في النظام") and d_name:
+            c = conn.cursor()
             
-            d_cat = col1.selectbox("البند الرئيسي", cats)
-            d_subcat = col2.selectbox("البند الفرعي", get_subcategories(d_cat))
-            d_type = col1.selectbox("حالة الدعم", ["مستمر", "منقطع / مقطوع"])
-            
-            monthly_exp = 0.0
-            if d_type == "مستمر":
-                monthly_exp = col2.number_input("المبلغ الشهري المتوقع (ر.س)", min_value=0.0, value=500.0)
-            
-            d_method = col1.selectbox("طريقة الدعم", ["تحويل بنكي", "نقدي", "مسبق", "لاحق"])
-            d_phone = col2.text_input("رقم الواتساب (مثال: 966500000000)")
-            d_notes = st.text_area("ملاحظات أخرى")
-            
-            if st.form_submit_button("💾 حفظ الداعم في النظام") and d_name:
-                c = conn.cursor()
-                c.execute("INSERT INTO donors (name, project, category, subcategory, support_type, monthly_expected, annual_expected, method, phone, notes) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                          (d_name, d_project, d_cat, d_subcat, d_type, monthly_exp, monthly_exp*12, d_method, d_phone, d_notes))
+            # إذا كانت الحلقة جديدة قم بحفظها أولاً في جدول الحلقات
+            if d_project_sel == "➕ إضافة حلقة جديدة..." and final_project:
+                c.execute("INSERT OR IGNORE INTO projects (name, notes) VALUES (?, ?)", (final_project, "أضيفت من شاشة الداعمين"))
                 conn.commit()
-                st.success("تم إضافة الداعم بنجاح!")
-                st.rerun()
+
+            c.execute("INSERT INTO donors (name, project, category, subcategory, support_type, monthly_expected, annual_expected, method, phone, notes) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                      (d_name, final_project, d_cat, d_subcat, d_type, monthly_exp, monthly_exp*12, d_method, d_phone, d_notes))
+            conn.commit()
+            st.success("تم إضافة الداعم وحفظ الحلقة بنجاح!")
+            st.rerun()
 
     with tab_edit_d:
         st.write("### ✏️ تعديل أو حذف داعم مسجل")
@@ -265,7 +291,10 @@ elif choice == "➕ إضافة وتعديل الداعمين":
             with st.form("edit_donor_form"):
                 col1, col2 = st.columns(2)
                 ed_name = col1.text_input("اسم الداعم", value=d_data['name'])
-                ed_project = col2.selectbox("الحلقة / المشروع", projects_list, index=projects_list.index(d_data['project']) if d_data['project'] in projects_list else 0)
+                
+                cur_proj_list = get_projects_list()
+                p_idx = cur_proj_list.index(d_data['project']) if d_data['project'] in cur_proj_list else 0
+                ed_project = col2.selectbox("الحلقة / المشروع", cur_proj_list, index=p_idx)
                 
                 ed_cat = col1.selectbox("البند الرئيسي", cats, index=cats.index(d_data['category']) if d_data['category'] in cats else 0)
                 ed_subcat = col2.selectbox("البند الفرعي", get_subcategories(ed_cat))
