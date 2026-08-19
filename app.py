@@ -4,6 +4,7 @@ import sqlite3
 import datetime
 import urllib.parse
 import math
+import os
 from io import BytesIO
 
 # --- PAGE CONFIGURATION ---
@@ -63,18 +64,18 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- DATABASE SETUP & SAFE AUTO-MIGRATION ---
+# --- DATABASE SETUP (VERSION 2 TO PREVENT DATABASE ERROR) ---
 DB_FILE = "donations_system_v2.db"
+
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
-    # 1. إنشاء الجداول الأساسية
     c.execute("CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)")
     c.execute("CREATE TABLE IF NOT EXISTS subcategories (id INTEGER PRIMARY KEY AUTOINCREMENT, category_name TEXT NOT NULL, name TEXT NOT NULL)")
-    c.execute("CREATE TABLE IF NOT EXISTS donors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, project TEXT NOT NULL, category TEXT NOT NULL, support_type TEXT NOT NULL, monthly_expected REAL DEFAULT 0, annual_expected REAL DEFAULT 0, method TEXT NOT NULL, phone TEXT, notes TEXT)")
-    c.execute("CREATE TABLE IF NOT EXISTS receipts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, donor_id INTEGER, donor_name TEXT, project TEXT, category TEXT, amount REAL NOT NULL, month TEXT NOT NULL, year INTEGER DEFAULT 2026)")
-    c.execute("CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, beneficiary TEXT NOT NULL, category TEXT NOT NULL, amount REAL NOT NULL, notes TEXT, year INTEGER DEFAULT 2026)")
+    c.execute("CREATE TABLE IF NOT EXISTS donors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, project TEXT NOT NULL, category TEXT NOT NULL, subcategory TEXT DEFAULT 'عام', support_type TEXT NOT NULL, monthly_expected REAL DEFAULT 0, annual_expected REAL DEFAULT 0, method TEXT NOT NULL, phone TEXT, notes TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS receipts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, donor_id INTEGER, donor_name TEXT, project TEXT, category TEXT, subcategory TEXT DEFAULT 'عام', amount REAL NOT NULL, month TEXT NOT NULL, year INTEGER DEFAULT 2026)")
+    c.execute("CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, beneficiary TEXT NOT NULL, category TEXT NOT NULL, subcategory TEXT DEFAULT 'عام', amount REAL NOT NULL, notes TEXT, year INTEGER DEFAULT 2026)")
     c.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, notes TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS teachers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, salary REAL DEFAULT 0, project TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS staff (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, role TEXT, salary REAL DEFAULT 0)")
@@ -90,18 +91,7 @@ def init_db():
     )
     """)
 
-    # 2. فحص وإضافة العمود المفقود في الجداول القديمة لتجنب خطأ DatabaseError
-    def ensure_column_exists(table_name, column_name, column_type):
-        c.execute(f"PRAGMA table_info({table_name})")
-        columns = [row[1] for row in c.fetchall()]
-        if column_name not in columns:
-            c.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
-
-    ensure_column_exists("donors", "subcategory", "TEXT DEFAULT 'عام'")
-    ensure_column_exists("receipts", "subcategory", "TEXT DEFAULT 'عام'")
-    ensure_column_exists("expenses", "subcategory", "TEXT DEFAULT 'عام'")
-
-    # 3. القيم الافتراضية للبنود
+    # القيم الافتراضية
     c.execute("SELECT COUNT(*) FROM categories")
     if c.fetchone()[0] == 0:
         c.executemany("INSERT INTO categories (name) VALUES (?)", [('رواتب',), ('البرامج والأنشطة',), ('الجوائز والتكريم',), ('دعومات أخرى',)])
@@ -585,9 +575,9 @@ elif choice == "🛠️ إدارة وتعريف وتعديل العناصر":
 
     conn.close()
 
-# --- 5. RECEIPTS ---
+# --- 5. RECEIPTS (WITH MULTI-MONTH SPAN & DUPLICATION CHECK) ---
 elif choice == "📥 تسجيل وتعديل المقبوضات":
-    st.subheader("📥 تسجيل وإدارة المقبوضات")
+    st.subheader("📥 تسجيل وإدارة المقبوضات (دعم متعدد الأشهر)")
     conn = get_connection()
     donors_df = pd.read_sql("SELECT * FROM donors", conn)
     cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
@@ -604,22 +594,51 @@ elif choice == "📥 تسجيل وتعديل المقبوضات":
             r_cat = c1.selectbox("البند الرئيسي", cats, index=cats.index(donor_info['category']) if donor_info['category'] in cats else 0)
             r_subcat = c2.selectbox("البند الفرعي", get_subcategories(r_cat))
 
-            c3, c4 = st.columns(2)
-            r_amount = c3.number_input("المبلغ (ر.س)", min_value=1.0, value=float(donor_info['monthly_expected']) if donor_info['monthly_expected'] > 0 else 1000.0)
-            r_date = c4.date_input("التاريخ", datetime.date.today())
-            hijri_str = get_hijri_str(r_date)
-
-            c5, c6 = st.columns(2)
-            r_month = c5.selectbox("الشهر", MONTHS, index=datetime.datetime.now().month - 1)
-            r_year = c6.selectbox("السنة", YEARS_LIST, index=YEARS_LIST.index(r_date.year) if r_date.year in YEARS_LIST else 2)
+            c3, c4, c5 = st.columns([2, 1, 1])
+            total_amount = c3.number_input("المبلغ الإجمالي المدفوع (ر.س)", min_value=1.0, value=float(donor_info['monthly_expected']) if donor_info['monthly_expected'] > 0 else 1000.0)
+            r_date = c4.date_input("تاريخ السند", datetime.date.today())
+            r_year = c5.selectbox("السنة المالية", YEARS_LIST, index=YEARS_LIST.index(r_date.year) if r_date.year in YEARS_LIST else 2)
             
+            # تحديد الأشهر المشمولة بالدعم
+            selected_months = st.multiselect(
+                "📅 اختر الأشهر المغطاة بهذا المبلغ (مثال: اختر 9 أشهر إذا كان المبلغ لـ 9 أشهر):",
+                MONTHS,
+                default=[MONTHS[datetime.datetime.now().month - 1]]
+            )
+
+            # فحص المدفوعات السابقة للتنبيه
+            if selected_months:
+                already_paid = []
+                for m in selected_months:
+                    check_df = pd.read_sql(
+                        "SELECT id FROM receipts WHERE donor_id = ? AND month = ? AND year = ?", 
+                        conn, 
+                        params=(int(donor_info['id']), m, int(r_year))
+                    )
+                    if not check_df.empty:
+                        already_paid.append(m)
+                
+                if already_paid:
+                    st.warning(f"⚠️ تنبيه: هذا الداعم لديه سداد سابق مسجل لشهر/أشهر ({', '.join(already_paid)}) لسنة {r_year}!")
+
+            r_notes = st.text_input("ملاحظات / بيان الدفعة", value=f"دفعة عن أشهر: {', '.join(selected_months)}" if selected_months else "")
+
             if st.form_submit_button("تسجيل المقبوضات ✅"):
-                c = conn.cursor()
-                c.execute("INSERT INTO receipts (date, date_hijri, donor_id, donor_name, project, category, subcategory, amount, month, year) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                          (str(r_date), hijri_str, donor_info['id'], donor_info['name'], donor_info['project'], r_cat, r_subcat, r_amount, r_month, int(r_year)))
-                conn.commit()
-                st.success("تم تسجيل العملية بنجاح!")
-                st.rerun()
+                if not selected_months:
+                    st.error("⚠️ يرجى اختيار شهر واحد على الأقل!")
+                else:
+                    split_amount = total_amount / len(selected_months)
+                    hijri_str = get_hijri_str(r_date)
+                    c = conn.cursor()
+                    
+                    for m in selected_months:
+                        c.execute(
+                            "INSERT INTO receipts (date, date_hijri, donor_id, donor_name, project, category, subcategory, amount, month, year) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                            (str(r_date), hijri_str, donor_info['id'], donor_info['name'], donor_info['project'], r_cat, r_subcat, split_amount, m, int(r_year))
+                        )
+                    conn.commit()
+                    st.success(f"✅ تم تسجيل المبلغ ({total_amount:,.2f} ر.س) وتقسيمه بمعدل ({split_amount:,.2f} ر.س) لكل شهر من الأشهر المختارة!")
+                    st.rerun()
 
     st.divider()
     receipts_df = pd.read_sql("SELECT id as 'رقم السند', date as 'التاريخ', date_hijri as 'التاريخ الهجري', donor_name as 'اسم الداعم', project as 'الحلقة', category as 'البند الرئيسي', subcategory as 'البند الفرعي', amount as 'المبلغ (ر.س)', month as 'الشهر', year as 'السنة' FROM receipts ORDER BY id DESC", conn)
