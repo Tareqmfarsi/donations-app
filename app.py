@@ -64,8 +64,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- DATABASE SETUP (VERSION 2 TO PREVENT DATABASE ERROR) ---
-DB_FILE = "donations_system_v2.db"
+# --- DATABASE SETUP (VERSION 3 TO PREVENT DATABASE ERROR WITH NEW COLUMNS) ---
+DB_FILE = "donations_system_v3.db"
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -73,7 +73,7 @@ def init_db():
     
     c.execute("CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)")
     c.execute("CREATE TABLE IF NOT EXISTS subcategories (id INTEGER PRIMARY KEY AUTOINCREMENT, category_name TEXT NOT NULL, name TEXT NOT NULL)")
-    c.execute("CREATE TABLE IF NOT EXISTS donors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, project TEXT NOT NULL, category TEXT NOT NULL, subcategory TEXT DEFAULT 'عام', support_type TEXT NOT NULL, monthly_expected REAL DEFAULT 0, annual_expected REAL DEFAULT 0, method TEXT NOT NULL, phone TEXT, notes TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS donors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, gender TEXT DEFAULT 'ذكر', title TEXT DEFAULT 'الأخ', project TEXT NOT NULL, category TEXT NOT NULL, subcategory TEXT DEFAULT 'عام', support_type TEXT NOT NULL, monthly_expected REAL DEFAULT 0, annual_expected REAL DEFAULT 0, method TEXT NOT NULL, phone TEXT, notes TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS receipts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, donor_id INTEGER, donor_name TEXT, project TEXT, category TEXT, subcategory TEXT DEFAULT 'عام', amount REAL NOT NULL, month TEXT NOT NULL, year INTEGER DEFAULT 2026)")
     c.execute("CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, beneficiary TEXT NOT NULL, category TEXT NOT NULL, subcategory TEXT DEFAULT 'عام', amount REAL NOT NULL, notes TEXT, year INTEGER DEFAULT 2026)")
     c.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, notes TEXT)")
@@ -223,26 +223,32 @@ elif choice == "➕ إضافة وتعديل الداعمين":
     with tab_add_d:
         st.write("### ➕ تسجيل بيانات داعم جديد")
         
+        col_g, col_t, col_n = st.columns([1, 1, 2])
+        d_gender = col_g.selectbox("الجنس", ["ذكر", "أنثى"])
+        
+        titles_options = ["الأخ", "الشيخ", "الدكتور", "المهندس", "الأستاذ", "سعادة"] if d_gender == "ذكر" else ["الأخت", "الشيخة", "الدكتورة", "المهندسة", "الأستاذة", "سعادة"]
+        d_title = col_t.selectbox("اللقب / المنصب", titles_options)
+        d_name = col_n.text_input("اسم الداعم الكامل")
+
         col1, col2 = st.columns(2)
-        d_name = col1.text_input("اسم الداعم الكامل")
-        d_project_sel = col2.selectbox("الحلقة / المشروع المخصص", projects_options)
+        d_project_sel = col1.selectbox("الحلقة / المشروع المخصص", projects_options)
         
         final_project = d_project_sel
         if d_project_sel == "➕ إضافة حلقة جديدة...":
-            new_p_input = col2.text_input("📝 اكتب اسم الحلقة الجديدة لتسجيلها:")
+            new_p_input = col1.text_input("📝 اكتب اسم الحلقة الجديدة لتسجيلها:")
             if new_p_input:
                 final_project = new_p_input.strip()
 
-        d_cat = col1.selectbox("البند الرئيسي", cats)
-        d_subcat = col2.selectbox("البند الفرعي", get_subcategories(d_cat))
-        d_type = col1.selectbox("حالة الدعم", ["مستمر", "منقطع / مقطوع"])
+        d_cat = col2.selectbox("البند الرئيسي", cats)
+        d_subcat = col1.selectbox("البند الفرعي", get_subcategories(d_cat))
+        d_type = col2.selectbox("حالة الدعم", ["مستمر", "منقطع / مقطوع"])
         
         monthly_exp = 0.0
         if d_type == "مستمر":
-            monthly_exp = col2.number_input("المبلغ الشهري المتوقع (ر.س)", min_value=0.0, value=500.0)
+            monthly_exp = col1.number_input("المبلغ الشهري المتوقع (ر.س)", min_value=0.0, value=500.0)
         
-        d_method = col1.selectbox("طريقة الدعم", ["تحويل بنكي", "نقدي", "مسبق", "لاحق"])
-        d_phone = col2.text_input("رقم الواتساب (مثال: 966500000000)")
+        d_method = col2.selectbox("طريقة الدعم", ["تحويل بنكي", "نقدي", "مسبق", "لاحق"])
+        d_phone = col1.text_input("رقم الواتساب (مثال: 966500000000)")
         d_notes = st.text_area("ملاحظات أخرى")
         
         if st.button("💾 حفظ الداعم في النظام") and d_name:
@@ -251,8 +257,8 @@ elif choice == "➕ إضافة وتعديل الداعمين":
                 c.execute("INSERT OR IGNORE INTO projects (name, notes) VALUES (?, ?)", (final_project, "أضيفت من شاشة الداعمين"))
                 conn.commit()
 
-            c.execute("INSERT INTO donors (name, project, category, subcategory, support_type, monthly_expected, annual_expected, method, phone, notes) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                      (d_name, final_project, d_cat, d_subcat, d_type, monthly_exp, monthly_exp*12, d_method, d_phone, d_notes))
+            c.execute("INSERT INTO donors (name, gender, title, project, category, subcategory, support_type, monthly_expected, annual_expected, method, phone, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                      (d_name, d_gender, d_title, final_project, d_cat, d_subcat, d_type, monthly_exp, monthly_exp*12, d_method, d_phone, d_notes))
             conn.commit()
             st.success("تم إضافة الداعم وحفظ البيانات بنجاح!")
             st.rerun()
@@ -267,16 +273,22 @@ elif choice == "➕ إضافة وتعديل الداعمين":
             d_data = donors_df_all[donors_df_all['name'] == donor_to_edit].iloc[0]
             
             with st.form("edit_donor_form"):
-                col1, col2 = st.columns(2)
-                ed_name = col1.text_input("اسم الداعم", value=d_data['name'])
+                cg, ct, cn = st.columns([1, 1, 2])
+                ed_gender = cg.selectbox("الجنس", ["ذكر", "أنثى"], index=0 if d_data['gender'] == "ذكر" else 1)
                 
+                ed_titles_options = ["الأخ", "الشيخ", "الدكتور", "المهندس", "الأستاذ", "سعادة"] if ed_gender == "ذكر" else ["الأخت", "الشيخة", "الدكتورة", "المهندسة", "الأستاذة", "سعادة"]
+                ed_title_idx = ed_titles_options.index(d_data['title']) if d_data['title'] in ed_titles_options else 0
+                ed_title = ct.selectbox("اللقب / المنصب", ed_titles_options, index=ed_title_idx)
+                ed_name = cn.text_input("اسم الداعم", value=d_data['name'])
+
+                col1, col2 = st.columns(2)
                 cur_proj_list = get_projects_list()
                 p_idx = cur_proj_list.index(d_data['project']) if d_data['project'] in cur_proj_list else 0
-                ed_project = col2.selectbox("الحلقة / المشروع", cur_proj_list, index=p_idx)
+                ed_project = col1.selectbox("الحلقة / المشروع", cur_proj_list, index=p_idx)
                 
-                ed_cat = col1.selectbox("البند الرئيسي", cats, index=cats.index(d_data['category']) if d_data['category'] in cats else 0)
-                ed_subcat = col2.selectbox("البند الفرعي", get_subcategories(ed_cat))
-                ed_type = col1.selectbox("حالة الدعم", ["مستمر", "منقطع / مقطوع"], index=0 if "مستمر" in d_data['support_type'] else 1)
+                ed_cat = col2.selectbox("البند الرئيسي", cats, index=cats.index(d_data['category']) if d_data['category'] in cats else 0)
+                ed_subcat = col1.selectbox("البند الفرعي", get_subcategories(ed_cat))
+                ed_type = col2.selectbox("حالة الدعم", ["مستمر", "منقطع / مقطوع"], index=0 if "مستمر" in d_data['support_type'] else 1)
                 ed_monthly = col1.number_input("المبلغ الشهري المتوقع", value=float(d_data['monthly_expected']))
                 ed_phone = col2.text_input("رقم الواتساب", value=str(d_data['phone'] or ''))
                 ed_notes = st.text_area("ملاحظات", value=str(d_data['notes'] or ''))
@@ -284,8 +296,8 @@ elif choice == "➕ إضافة وتعديل الداعمين":
                 b1, b2 = st.columns(2)
                 if b1.form_submit_button("✏️ تحديث بيانات الداعم"):
                     c = conn.cursor()
-                    c.execute("UPDATE donors SET name=?, project=?, category=?, subcategory=?, support_type=?, monthly_expected=?, annual_expected=?, phone=?, notes=? WHERE id=?",
-                              (ed_name, ed_project, ed_cat, ed_subcat, ed_type, ed_monthly, ed_monthly*12, ed_phone, ed_notes, int(d_data['id'])))
+                    c.execute("UPDATE donors SET name=?, gender=?, title=?, project=?, category=?, subcategory=?, support_type=?, monthly_expected=?, annual_expected=?, phone=?, notes=? WHERE id=?",
+                              (ed_name, ed_gender, ed_title, ed_project, ed_cat, ed_subcat, ed_type, ed_monthly, ed_monthly*12, ed_phone, ed_notes, int(d_data['id'])))
                     conn.commit()
                     st.success("تم تحديث الداعم!")
                     st.rerun()
@@ -299,7 +311,7 @@ elif choice == "➕ إضافة وتعديل الداعمين":
 
     st.divider()
     st.write("### 📋 قائمة الداعمين المسجلين بالكامل:")
-    df_show = pd.read_sql("SELECT name as 'اسم الداعم', project as 'الحلقة المخصصة', category as 'البند الرئيسي', subcategory as 'البند الفرعي', support_type as 'حالة الدعم', monthly_expected as 'المبلغ الشهري', phone as 'الهاتف', notes as 'الملاحظات' FROM donors", conn)
+    df_show = pd.read_sql("SELECT title as 'اللقب', name as 'اسم الداعم', gender as 'الجنس', project as 'الحلقة المخصصة', category as 'البند الرئيسي', subcategory as 'البند الفرعي', support_type as 'حالة الدعم', monthly_expected as 'المبلغ الشهري', phone as 'الهاتف', notes as 'الملاحظات' FROM donors", conn)
     st.dataframe(df_show, use_container_width=True)
     conn.close()
 
@@ -575,7 +587,7 @@ elif choice == "🛠️ إدارة وتعريف وتعديل العناصر":
 
     conn.close()
 
-# --- 5. RECEIPTS (WITH MULTI-MONTH SPAN & DUPLICATION CHECK) ---
+# --- 5. RECEIPTS ---
 elif choice == "📥 تسجيل وتعديل المقبوضات":
     st.subheader("📥 تسجيل وإدارة المقبوضات (دعم متعدد الأشهر)")
     conn = get_connection()
@@ -599,14 +611,12 @@ elif choice == "📥 تسجيل وتعديل المقبوضات":
             r_date = c4.date_input("تاريخ السند", datetime.date.today())
             r_year = c5.selectbox("السنة المالية", YEARS_LIST, index=YEARS_LIST.index(r_date.year) if r_date.year in YEARS_LIST else 2)
             
-            # تحديد الأشهر المشمولة بالدعم
             selected_months = st.multiselect(
-                "📅 اختر الأشهر المغطاة بهذا المبلغ (مثال: اختر 9 أشهر إذا كان المبلغ لـ 9 أشهر):",
+                "📅 اختر الأشهر المغطاة بهذا المبلغ:",
                 MONTHS,
                 default=[MONTHS[datetime.datetime.now().month - 1]]
             )
 
-            # فحص المدفوعات السابقة للتنبيه
             if selected_months:
                 already_paid = []
                 for m in selected_months:
@@ -690,7 +700,7 @@ elif choice == "🗓️ جدول متابعة الأشهر والسنوات":
     if not donors_df.empty:
         matrix_rows = []
         for _, d in donors_df.iterrows():
-            row = {"اسم الداعم": d['name'], "الحلقة": d['project'], "البند الرئيسي": d['category']}
+            row = {"اللقب": d.get('title', 'الأخ'), "اسم الداعم": d['name'], "الحلقة": d['project'], "البند الرئيسي": d['category']}
             for m in MONTHS:
                 if "منقطع" in str(d['support_type']):
                     row[m] = "⚪"
@@ -700,7 +710,7 @@ elif choice == "🗓️ جدول متابعة الأشهر والسنوات":
             matrix_rows.append(row)
         st.dataframe(pd.DataFrame(matrix_rows), use_container_width=True)
 
-# --- 8. WHATSAPP REMINDERS ---
+# --- 8. WHATSAPP REMINDERS (CUSTOMIZED WITH TITLES & GENDER) ---
 elif choice == "📱 مركز تذكير الواتساب":
     st.subheader("📱 إرسال تذكيرات الواتساب للداعمين")
     c1, c2 = st.columns(2)
@@ -717,11 +727,15 @@ elif choice == "📱 مركز تذكير الواتساب":
             paid = not receipts_df[receipts_df['donor_id'] == d['id']].empty
             if not paid:
                 phone = str(d['phone']).replace("+", "").replace(" ", "")
-                msg = f"السلام عليكم ورحمة الله وبركاته، الأخ/ {d['name']}، نود تذكيركم بدعم شهر ({selected_month}) لسنة ({selected_wa_year}) المخصص لـ ({d['project']}) - وقف الإرتقاء الخيري."
+                
+                # تخصيص اللقب والاسم في الرسالة
+                d_title = d.get('title', 'الأخ')
+                
+                msg = f"السلام عليكم ورحمة الله وبركاته،\n{d_title}/ {d['name']} المحترم/ة\n\nنود تذكيركم بدعم شهر ({selected_month}) لسنة ({selected_wa_year}) المخصص لـ ({d['project']}) - وقف الإرتقاء الخيري.\nتقبل الله صالح أعمالكم."
                 wa_url = f"https://wa.me/{phone}?text={urllib.parse.quote(msg)}"
                 
                 col_a, col_b = st.columns([3, 1])
-                col_a.write(f"👤 **{d['name']}** - ({d['project']})")
+                col_a.write(f"👤 **{d_title}/ {d['name']}** - ({d['project']})")
                 col_b.markdown(f"[📲 إرسال واتساب]({wa_url})", unsafe_allow_html=True)
 
 # --- 9. PRINTABLE REPORTS ---
