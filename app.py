@@ -71,22 +71,6 @@ st.markdown("""
         background: linear-gradient(135deg, #276A55 0%, #1B4D3E 100%);
         box-shadow: 0 4px 10px rgba(0,0,0,0.15);
     }
-
-    .status-badge-paid {
-        background-color: #d1e7dd;
-        color: #0f5132;
-        padding: 4px 8px;
-        border-radius: 6px;
-        font-weight: bold;
-    }
-
-    .status-badge-unpaid {
-        background-color: #f8d7da;
-        color: #842029;
-        padding: 4px 8px;
-        border-radius: 6px;
-        font-weight: bold;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -208,13 +192,18 @@ elif choice == "👥 دليل الداعمين والحلقات":
     
     conn = get_connection()
     cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
-    
+    if not cats:
+        cats = ["رواتب المعلمين", "الجوائز والتكريم", "الفعاليات والأنشطة", "دعومات أخرى"]
+        
+    # ضبط خيار "رواتب المعلمين" ليكون الافتراضي
+    default_cat_index = cats.index("رواتب المعلمين") if "رواتب المعلمين" in cats else 0
+
     with st.expander("➕ إضافة داعم جديد", expanded=False):
         with st.form("add_donor_form"):
             col1, col2 = st.columns(2)
             d_name = col1.text_input("اسم الداعم / الجهة")
             d_project = col2.text_input("اسم الحلقة / المشروع المخصص")
-            d_cat = col1.selectbox("البند الرئيسي", cats if cats else ["رواتب المعلمين"])
+            d_cat = col1.selectbox("البند الرئيسي (الافتراضي: رواتب المعلمين)", cats, index=default_cat_index)
             d_type = col2.selectbox("طبيعة الدعم", ["مستمر (شهري/دوري)", "مقطوع (مرة واحدة)"])
             d_method = col1.selectbox("طريقة الدعم", ["مسبق (بداية الشهر)", "لاحق (نهاية الشهر)", "تحويل بنكي", "نقدي", "استقطاع شهري"])
             d_phone = col2.text_input("رقم الواتساب / الجوال (مثال: 966500000000)")
@@ -239,37 +228,47 @@ elif choice == "📥 تسجيل الدعم (المقبوضات)":
     
     conn = get_connection()
     donors_df = pd.read_sql("SELECT * FROM donors", conn)
-    
+    cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
+    if not cats:
+        cats = ["رواتب المعلمين", "الجوائز والتكريم", "الفعاليات والأنشطة", "دعومات أخرى"]
+
     if donors_df.empty:
         st.warning("يرجى إضافة داعمين أولاً في قائمة 'دليل الداعمين'.")
     else:
         donor_names = donors_df['name'].tolist()
-        selected_donor = st.selectbox("اختر الداعم / الجهة (سيتم جلب التفاصيل تلقائياً ⚡)", donor_names)
+        selected_donor = st.selectbox("اختر الداعم / الجهة (سيتم جلب البيانات تلقائياً ⚡)", donor_names)
         
         donor_info = donors_df[donors_df['name'] == selected_donor].iloc[0]
         
+        # تكييف البند الافتراضي مع إمكانية التغيير لغيره
+        donor_default_cat = donor_info['category'] if donor_info['category'] in cats else "رواتب المعلمين"
+        donor_cat_index = cats.index(donor_default_cat) if donor_default_cat in cats else 0
+        
         col1, col2 = st.columns(2)
         col1.info(f"📍 الحلقة المخصصة: **{donor_info['project']}**")
-        col2.info(f"🏷️ البند المخصص: **{donor_info['category']}**")
+        col2.info(f"🏷️ البند المسجل للداعم: **{donor_info['category']}**")
         
         with st.form("receipt_form"):
-            c1, c2, c3, c4 = st.columns(4)
-            r_date = c1.date_input("تاريخ الدعم الفعلي (حتى لو بأثر رجعي)", datetime.date.today())
+            c1, c2 = st.columns(2)
+            r_cat = c1.selectbox("تأكيد أو تغيير البند المخصص لهذه الدفعة ✏️", cats, index=donor_cat_index)
             r_amount = c2.number_input("المبلغ المقبوض (ر.س)", min_value=1.0, value=1000.0, step=100.0)
-            r_month = c3.selectbox("الشهر المخصص", MONTHS, index=datetime.datetime.now().month - 1)
-            r_year = c4.selectbox("السنة المخصصة", YEARS_LIST, index=YEARS_LIST.index(r_date.year) if r_date.year in YEARS_LIST else 2)
+
+            c3, c4, c5 = st.columns(3)
+            r_date = c3.date_input("تاريخ الدعم الفعلي", datetime.date.today())
+            r_month = c4.selectbox("الشهر المخصص", MONTHS, index=datetime.datetime.now().month - 1)
+            r_year = c5.selectbox("السنة المخصصة", YEARS_LIST, index=YEARS_LIST.index(r_date.year) if r_date.year in YEARS_LIST else 2)
             
             save_receipt = st.form_submit_button("تسجيل المقبوضات ✅")
             if save_receipt:
                 c = conn.cursor()
                 c.execute("INSERT INTO receipts (date, donor_id, donor_name, project, category, amount, month, year) VALUES (?,?,?,?,?,?,?,?)",
-                          (str(r_date), donor_info['id'], donor_info['name'], donor_info['project'], donor_info['category'], r_amount, r_month, int(r_year)))
+                          (str(r_date), donor_info['id'], donor_info['name'], donor_info['project'], r_cat, r_amount, r_month, int(r_year)))
                 conn.commit()
-                st.success("تم تسجيل المقبوضات بنجاح!")
+                st.success(f"تم تسجيل مبلغ {r_amount:,.2f} ر.س لـ ({donor_info['name']}) تحت بند ({r_cat}) بنجاح!")
                 st.rerun()
 
     st.subheader("📋 سجل المقبوضات الأخير")
-    receipts_df = pd.read_sql("SELECT id as 'م', date as 'التاريخ', donor_name as 'الداعم', project as 'الحلقة', category as 'البند', amount as 'المبلغ (ر.س)', month as 'الشهر', year as 'السنة' FROM receipts ORDER BY id DESC", conn)
+    receipts_df = pd.read_sql("SELECT id as 'م', date as 'التاريخ', donor_name as 'الداعم', project as 'الحلقة', category as 'البند المخصص للدفعة', amount as 'المبلغ (ر.س)', month as 'الشهر', year as 'السنة' FROM receipts ORDER BY id DESC", conn)
     conn.close()
     st.dataframe(receipts_df, use_container_width=True)
 
@@ -279,12 +278,16 @@ elif choice == "💸 سجل المصروفات":
     
     conn = get_connection()
     cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
-    
+    if not cats:
+        cats = ["رواتب المعلمين", "الجوائز والتكريم", "الفعاليات والأنشطة", "دعومات أخرى"]
+        
+    default_cat_index = cats.index("رواتب المعلمين") if "رواتب المعلمين" in cats else 0
+
     with st.form("expense_form"):
         col1, col2, col3 = st.columns(3)
         exp_date = col1.date_input("تاريخ الصرف", datetime.date.today())
         exp_beneficiary = col2.text_input("الجهة / المستفيد / الحلقة")
-        exp_cat = col3.selectbox("البند المخصوم منه", cats)
+        exp_cat = col3.selectbox("البند المخصوم منه", cats, index=default_cat_index)
         
         c1, c2, c3 = st.columns([1, 2, 1])
         exp_amount = c1.number_input("المبلغ المصروف (ر.س)", min_value=1.0, value=500.0, step=50.0)
@@ -326,7 +329,7 @@ elif choice == "🗓️ جدول متابعة الأشهر والسنوات":
             row = {
                 "الداعم": d['name'],
                 "الحلقة": d['project'],
-                "البند": d['category'],
+                "البند الرئيسي": d['category'],
                 "طبيعة الدعم": d['support_type']
             }
             supported_count = 0
@@ -356,7 +359,9 @@ elif choice == "📄 تقارير البنود المخصصة":
     
     conn = get_connection()
     cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
-    
+    if not cats:
+        cats = ["رواتب المعلمين", "الجوائز والتكريم", "الفعاليات والأنشطة", "دعومات أخرى"]
+        
     col_c, col_y = st.columns(2)
     selected_cat = col_c.selectbox("اختر البند المخصص لعرض تفاصيله", cats)
     selected_y = col_y.selectbox("اختر السنة", YEARS_LIST, index=YEARS_LIST.index(2026) if 2026 in YEARS_LIST else 2)
