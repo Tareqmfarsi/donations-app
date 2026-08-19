@@ -64,8 +64,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- DATABASE SETUP & SAFE AUTO-MIGRATION ---
-DB_FILE = "donations_system.db"
-
+DB_FILE = "donations_system_v2.db"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
