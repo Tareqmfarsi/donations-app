@@ -139,28 +139,27 @@ MONTHS = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "�
 YEARS_LIST = list(range(2024, 2031))
 
 # --- SIDEBAR NAVIGATION ---
-st.sidebar.image("https://img.icons8.com/isometric-folders/100/mosque.png", width=70)
-st.sidebar.title("📌 القائمة الرئيسية")
-st.sidebar.markdown("---")
-
-choice = st.sidebar.selectbox(
-    "اختر الشاشة المطلوب الانتقال إليها:",
-    [
-        "📊 لوحة التحكم المباشرة",
-        "👥 دليل الداعمين وتعديل البيانات",
-        "📥 تسجيل وتعديل المقبوضات",
-        "💸 تسجيل وتعديل المصروفات",
-        "🗓️ جدول متابعة الأشهر والسنوات",
-        "📄 تقارير البنود المخصصة",
-        "📱 مركز تذكير الواتساب",
-        "🖨️ التقارير القابلة للطباعة والتصدير",
-        "⚙️ إعدادات البنود الرئيسية والفرعية"
-    ]
-)
-
-st.sidebar.markdown("---")
-st.sidebar.caption("نظام إدارة وقف الإرتقاء الخيري v2.0")
-
+with st.sidebar:
+    st.image("https://img.icons8.com/isometric-folders/100/mosque.png", width=60)
+    st.title("🕌 وقف الإرتقاء")
+    
+    # قائمة مطوية (Flyout/Collapsible Menu)
+    with st.expander("📂 **قائمة أجزاء النظام (إضغط للفتح)**", expanded=True):
+        choice = st.radio(
+            "اختر الشاشة:",
+            [
+                "📊 لوحة التحكم المباشرة",
+                "👥 دليل الداعمين وتعديل البيانات",
+                "📥 تسجيل وتعديل المقبوضات",
+                "💸 تسجيل وتعديل المصروفات",
+                "🗓️ جدول متابعة الأشهر والسنوات",
+                "📄 تقارير البنود المخصصة",
+                "📱 مركز تذكير الواتساب",
+                "🖨️ التقارير القابلة للطباعة والتصدير",
+                "⚙️ إعدادات البنود الرئيسية والفرعية"
+            ],
+            label_visibility="collapsed"
+        )
 # --- HEADER ---
 st.markdown("""
 <div class='main-header'>
