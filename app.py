@@ -30,7 +30,6 @@ st.markdown("""
         border-left: 1px solid #e2e8f0;
     }
     
-    /* Tables RTL support */
     div[data-testid="stDataFrame"] div {
         direction: rtl !important;
         text-align: right !important;
@@ -50,7 +49,6 @@ st.markdown("""
         font-weight: 800;
     }
 
-    /* Print Template Header CSS */
     .printable-header {
         display: flex;
         justify-content: space-between;
@@ -59,31 +57,25 @@ st.markdown("""
         padding-bottom: 15px;
         margin-bottom: 20px;
     }
-    .printable-header .logo-box {
-        text-align: right;
-    }
-    .printable-header .title-box {
-        text-align: center;
-    }
-    .printable-header .meta-box {
-        text-align: left;
-    }
+    .printable-header .logo-box { text-align: right; }
+    .printable-header .title-box { text-align: center; }
+    .printable-header .meta-box { text-align: left; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- DATABASE SETUP & AUTO MIGRATION ---
+# --- DATABASE SETUP & SAFE AUTO-MIGRATION ---
 DB_FILE = "donations_system.db"
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
+    # 1. إنشاء الجداول الأساسية
     c.execute("CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)")
     c.execute("CREATE TABLE IF NOT EXISTS subcategories (id INTEGER PRIMARY KEY AUTOINCREMENT, category_name TEXT NOT NULL, name TEXT NOT NULL)")
-    c.execute("CREATE TABLE IF NOT EXISTS donors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, project TEXT NOT NULL, category TEXT NOT NULL, subcategory TEXT DEFAULT 'عام', support_type TEXT NOT NULL, monthly_expected REAL DEFAULT 0, annual_expected REAL DEFAULT 0, method TEXT NOT NULL, phone TEXT, notes TEXT)")
-    c.execute("CREATE TABLE IF NOT EXISTS receipts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, donor_id INTEGER, donor_name TEXT, project TEXT, category TEXT, subcategory TEXT DEFAULT 'عام', amount REAL NOT NULL, month TEXT NOT NULL, year INTEGER DEFAULT 2026)")
-    c.execute("CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, beneficiary TEXT NOT NULL, category TEXT NOT NULL, subcategory TEXT DEFAULT 'عام', amount REAL NOT NULL, notes TEXT, year INTEGER DEFAULT 2026)")
-    
+    c.execute("CREATE TABLE IF NOT EXISTS donors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, project TEXT NOT NULL, category TEXT NOT NULL, support_type TEXT NOT NULL, monthly_expected REAL DEFAULT 0, annual_expected REAL DEFAULT 0, method TEXT NOT NULL, phone TEXT, notes TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS receipts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, donor_id INTEGER, donor_name TEXT, project TEXT, category TEXT, amount REAL NOT NULL, month TEXT NOT NULL, year INTEGER DEFAULT 2026)")
+    c.execute("CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, beneficiary TEXT NOT NULL, category TEXT NOT NULL, amount REAL NOT NULL, notes TEXT, year INTEGER DEFAULT 2026)")
     c.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, notes TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS teachers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, salary REAL DEFAULT 0, project TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS staff (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, role TEXT, salary REAL DEFAULT 0)")
@@ -99,17 +91,18 @@ def init_db():
     )
     """)
 
-    # --- AUTO MIGRATION TO PREVENT COLUMN ERRORS ---
-    def add_col_if_not_exists(table, col, col_type):
-        try:
-            c.execute(f"SELECT {col} FROM {table} LIMIT 1")
-        except sqlite3.OperationalError:
-            c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+    # 2. فحص وإضافة العمود المفقود في الجداول القديمة لتجنب خطأ DatabaseError
+    def ensure_column_exists(table_name, column_name, column_type):
+        c.execute(f"PRAGMA table_info({table_name})")
+        columns = [row[1] for row in c.fetchall()]
+        if column_name not in columns:
+            c.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
 
-    add_col_if_not_exists("donors", "subcategory", "TEXT DEFAULT 'عام'")
-    add_col_if_not_exists("receipts", "subcategory", "TEXT DEFAULT 'عام'")
-    add_col_if_not_exists("expenses", "subcategory", "TEXT DEFAULT 'عام'")
+    ensure_column_exists("donors", "subcategory", "TEXT DEFAULT 'عام'")
+    ensure_column_exists("receipts", "subcategory", "TEXT DEFAULT 'عام'")
+    ensure_column_exists("expenses", "subcategory", "TEXT DEFAULT 'عام'")
 
+    # 3. القيم الافتراضية للبنود
     c.execute("SELECT COUNT(*) FROM categories")
     if c.fetchone()[0] == 0:
         c.executemany("INSERT INTO categories (name) VALUES (?)", [('رواتب',), ('البرامج والأنشطة',), ('الجوائز والتكريم',), ('دعومات أخرى',)])
@@ -160,7 +153,7 @@ def get_projects_list():
 MONTHS = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
 YEARS_LIST = list(range(2024, 2031))
 
-# --- SIDEBAR FLYOUT MENU ---
+# --- SIDEBAR MENU ---
 with st.sidebar:
     st.image("https://img.icons8.com/isometric-folders/100/mosque.png", width=60)
     st.title("🕌 وقف الإرتقاء")
@@ -227,7 +220,7 @@ if choice == "📊 لوحة التحكم المباشرة":
         })
     st.dataframe(pd.DataFrame(summary_data), use_container_width=True)
 
-# --- 2. DONORS FULL MANAGEMENT ---
+# --- 2. DONORS MANAGEMENT ---
 elif choice == "➕ إضافة وتعديل الداعمين":
     st.subheader("👥 دليل وتخصيص الداعمين (إضافة - تعديل - حذف)")
     
@@ -236,7 +229,6 @@ elif choice == "➕ إضافة وتعديل الداعمين":
     cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
     if not cats: cats = ["رواتب"]
     
-    # قائمة الحلقات مع خيار إضافة حلقة جديدة
     projects_options = get_projects_list() + ["➕ إضافة حلقة جديدة..."]
 
     with tab_add_d:
@@ -246,7 +238,6 @@ elif choice == "➕ إضافة وتعديل الداعمين":
         d_name = col1.text_input("اسم الداعم الكامل")
         d_project_sel = col2.selectbox("الحلقة / المشروع المخصص", projects_options)
         
-        # إذا اختار إضافة حلقة جديدة
         final_project = d_project_sel
         if d_project_sel == "➕ إضافة حلقة جديدة...":
             new_p_input = col2.text_input("📝 اكتب اسم الحلقة الجديدة لتسجيلها:")
@@ -267,8 +258,6 @@ elif choice == "➕ إضافة وتعديل الداعمين":
         
         if st.button("💾 حفظ الداعم في النظام") and d_name:
             c = conn.cursor()
-            
-            # إذا كانت الحلقة جديدة قم بحفظها أولاً في جدول الحلقات
             if d_project_sel == "➕ إضافة حلقة جديدة..." and final_project:
                 c.execute("INSERT OR IGNORE INTO projects (name, notes) VALUES (?, ?)", (final_project, "أضيفت من شاشة الداعمين"))
                 conn.commit()
@@ -276,7 +265,7 @@ elif choice == "➕ إضافة وتعديل الداعمين":
             c.execute("INSERT INTO donors (name, project, category, subcategory, support_type, monthly_expected, annual_expected, method, phone, notes) VALUES (?,?,?,?,?,?,?,?,?,?)",
                       (d_name, final_project, d_cat, d_subcat, d_type, monthly_exp, monthly_exp*12, d_method, d_phone, d_notes))
             conn.commit()
-            st.success("تم إضافة الداعم وحفظ الحلقة بنجاح!")
+            st.success("تم إضافة الداعم وحفظ البيانات بنجاح!")
             st.rerun()
 
     with tab_edit_d:
@@ -372,10 +361,9 @@ elif choice == "🎯 كفالات وتوزيع دعم الداعمين":
     st.divider()
     
     st.write("### 🔍 كشف التغطيات والرعايات المسجلة")
-    v_tab1, v_tab2 = st.tabs(["📊 حسب المعلم / الإداري (من يبسط يده بدعمه؟)", "👤 حسب الداعم (كيف يتوزع دعمه؟)"])
+    v_tab1, v_tab2 = st.tabs(["📊 حسب المعلم / الإداري", "👤 حسب الداعم"])
     
     with v_tab1:
-        st.write("**كشف الرعاية المخصصة لكل شخص:**")
         all_bens = teachers_list + staff_list
         if all_bens:
             sel_target_ben = st.selectbox("اختر المعلم أو الإداري لرؤية داعميه:", all_bens)
@@ -386,13 +374,12 @@ elif choice == "🎯 كفالات وتوزيع دعم الداعمين":
             st.dataframe(ben_alloc_df, use_container_width=True)
             
     with v_tab2:
-        st.write("**جدول توزيعات جميع الداعمين:**")
         all_alloc_df = pd.read_sql("SELECT donor_name as 'الداعم', beneficiary_type as 'نوع المستفيد', beneficiary_name as 'المستفيد (المعلم/الإداري)', allocated_amount as 'المبلغ المخصص (ر.س)', notes as 'ملاحظات' FROM donor_allocations", conn)
         st.dataframe(all_alloc_df, use_container_width=True)
 
     conn.close()
 
-# --- 4. MANAGEMENT & EDITING OF OTHER ENTITIES ---
+# --- 4. MANAGEMENT OF OTHER ENTITIES ---
 elif choice == "🛠️ إدارة وتعريف وتعديل العناصر":
     st.subheader("🛠️ مركز إضافة، تعديل، وحذف الحلقات والبنود والكوادر")
     
@@ -719,7 +706,7 @@ elif choice == "📱 مركز تذكير الواتساب":
                 col_a.write(f"👤 **{d['name']}** - ({d['project']})")
                 col_b.markdown(f"[📲 إرسال واتساب]({wa_url})", unsafe_allow_html=True)
 
-# --- 9. PRINTABLE REPORTS & DYNAMIC EXPORT WITH LOGO ---
+# --- 9. PRINTABLE REPORTS ---
 elif choice == "🖨️ التقارير والطباعة الرسمية":
     st.subheader("🖨️ التقارير المالية الرسمية والطباعة")
     
@@ -777,7 +764,6 @@ elif choice == "🖨️ التقارير والطباعة الرسمية":
 
     st.divider()
 
-    # PRINTABLE HEADER TEMPLATE (FORMAL)
     st.markdown(f"""
     <div class="printable-header">
         <div class="logo-box">
@@ -803,7 +789,6 @@ elif choice == "🖨️ التقارير والطباعة الرسمية":
     m2.metric("إجمالي المصروفات للفترة", f"{tot_exp:,.2f} ر.س")
     m3.metric("الصافي المتبقي", f"{tot_rec - tot_exp:,.2f} ر.س")
 
-    # Rename Columns for Arabic View
     rec_renamed = receipts_df.rename(columns={
         "id": "رقم السند", "date": "التاريخ", "date_hijri": "التاريخ الهجري", 
         "donor_name": "اسم الداعم", "project": "الحلقة/المشروع", "category": "البند الرئيسي",
@@ -822,7 +807,6 @@ elif choice == "🖨️ التقارير والطباعة الرسمية":
     st.write("### 💸 تفاصيل حركة المصروفات")
     st.dataframe(exp_renamed, use_container_width=True)
 
-    # Download Excel
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         rec_renamed.to_excel(writer, sheet_name='المقبوضات', index=False)
