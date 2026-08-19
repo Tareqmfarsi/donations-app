@@ -4,10 +4,11 @@ import sqlite3
 import datetime
 import urllib.parse
 from io import BytesIO
+from umalqurra.hijri_date import HijriDate
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="نظام إدارة الدعومات والمالية المطور",
+    page_title="وقف الإرتقاء الخيري - نظام إدارة الدعومات والمالية",
     page_icon="🕌",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -71,8 +72,37 @@ st.markdown("""
         background: linear-gradient(135deg, #276A55 0%, #1B4D3E 100%);
         box-shadow: 0 4px 10px rgba(0,0,0,0.15);
     }
+
+    /* Styling Sidebar Navigation Buttons */
+    div[data-testid="stSidebar"] div.stRadio > div {
+        gap: 8px;
+    }
+    div[data-testid="stSidebar"] div.stRadio label {
+        background-color: #f8fafc;
+        padding: 10px 14px;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        cursor: pointer;
+        width: 100%;
+        font-weight: 600;
+        transition: all 0.2s ease;
+    }
+    div[data-testid="stSidebar"] div.stRadio label:hover {
+        background-color: #e2e8f0;
+        color: #1B4D3E;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# Helper function to format Greg to Hijri
+def get_hijri_str(dt):
+    try:
+        h = HijriDate.get_hijri_date(dt)
+        months_ar = ["محرم", "صفر", "ربيع الأول", "ربيع الثاني", "جمادى الأولى", "جمادى الآخرة", "رجب", "شعبان", "رمضان", "شوال", "ذو القعدة", "ذو الحجة"]
+        month_name = months_ar[int(h.month) - 1]
+        return f"{int(h.day)} {month_name} {int(h.year)} هـ"
+    except:
+        return f"{dt.strftime('%Y-%m-%d')} هـ"
 
 # --- DATABASE SETUP ---
 DB_FILE = "donations_system.db"
@@ -86,44 +116,25 @@ def init_db():
     
     c.execute("CREATE TABLE IF NOT EXISTS subcategories (id INTEGER PRIMARY KEY AUTOINCREMENT, category_name TEXT NOT NULL, name TEXT NOT NULL)")
                 
-    c.execute("CREATE TABLE IF NOT EXISTS donors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, project TEXT NOT NULL, category TEXT NOT NULL, subcategory TEXT DEFAULT 'عام', support_type TEXT NOT NULL, method TEXT NOT NULL, phone TEXT, notes TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS donors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, project TEXT NOT NULL, category TEXT NOT NULL, subcategory TEXT DEFAULT 'عام', support_type TEXT NOT NULL, monthly_expected REAL DEFAULT 0, annual_expected REAL DEFAULT 0, method TEXT NOT NULL, phone TEXT, notes TEXT)")
                 
-    c.execute("CREATE TABLE IF NOT EXISTS receipts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, donor_id INTEGER, donor_name TEXT, project TEXT, category TEXT, subcategory TEXT DEFAULT 'عام', amount REAL NOT NULL, month TEXT NOT NULL, year INTEGER DEFAULT 2026)")
+    c.execute("CREATE TABLE IF NOT EXISTS receipts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, donor_id INTEGER, donor_name TEXT, project TEXT, category TEXT, subcategory TEXT DEFAULT 'عام', amount REAL NOT NULL, month TEXT NOT NULL, year INTEGER DEFAULT 2026)")
                 
-    c.execute("CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, beneficiary TEXT NOT NULL, category TEXT NOT NULL, subcategory TEXT DEFAULT 'عام', amount REAL NOT NULL, notes TEXT, year INTEGER DEFAULT 2026)")
+    c.execute("CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, date_hijri TEXT, beneficiary TEXT NOT NULL, category TEXT NOT NULL, subcategory TEXT DEFAULT 'عام', amount REAL NOT NULL, notes TEXT, year INTEGER DEFAULT 2026)")
                 
-    # Migrations
-    try:
-        c.execute("ALTER TABLE receipts ADD COLUMN year INTEGER DEFAULT 2026")
-    except sqlite3.OperationalError: pass
-    
-    try:
-        c.execute("ALTER TABLE expenses ADD COLUMN year INTEGER DEFAULT 2026")
-    except sqlite3.OperationalError: pass
-
-    try:
-        c.execute("ALTER TABLE donors ADD COLUMN subcategory TEXT DEFAULT 'عام'")
-    except sqlite3.OperationalError: pass
-
-    try:
-        c.execute("ALTER TABLE receipts ADD COLUMN subcategory TEXT DEFAULT 'عام'")
-    except sqlite3.OperationalError: pass
-
-    try:
-        c.execute("ALTER TABLE expenses ADD COLUMN subcategory TEXT DEFAULT 'عام'")
-    except sqlite3.OperationalError: pass
-
-    # Insert default categories if empty
+    # Insert default main & sub categories
     c.execute("SELECT COUNT(*) FROM categories")
     if c.fetchone()[0] == 0:
-        default_cats = [('رواتب المعلمين',), ('الجوائز والتكريم',), ('الفعاليات والأنشطة',), ('دعومات أخرى',)]
+        default_cats = [('رواتب',), ('البرامج والأنشطة',), ('الجوائز والتكريم',), ('دعومات أخرى',)]
         c.executemany("INSERT INTO categories (name) VALUES (?)", default_cats)
         
         default_subcats = [
-            ('رواتب المعلمين', 'راتب معلم'),
-            ('رواتب المعلمين', 'راتب طاقم إداري'),
-            ('الجوائز والتكريم', 'تكريم طلاب'),
-            ('الجوائز والتكريم', 'حفل سنوي')
+            ('رواتب', 'رواتب المعلمين'),
+            ('رواتب', 'رواتب الإداريين'),
+            ('البرامج والأنشطة', 'برنامج رمضان لعام 1448 هـ'),
+            ('البرامج والأنشطة', 'الحفل السنوي ختام الدورة'),
+            ('الجوائز والتكريم', 'تكريم الخفاظ'),
+            ('الجوائز والتكريم', 'جوائز التفوق')
         ]
         c.executemany("INSERT INTO subcategories (category_name, name) VALUES (?,?)", default_subcats)
         
@@ -135,7 +146,6 @@ init_db()
 def get_connection():
     return sqlite3.connect(DB_FILE)
 
-# Helper function to get subcategories
 def get_subcategories(cat_name):
     conn = get_connection()
     subs = pd.read_sql("SELECT name FROM subcategories WHERE category_name = ?", conn, params=(cat_name,))['name'].tolist()
@@ -145,11 +155,13 @@ def get_subcategories(cat_name):
 # --- APP LAYOUT ---
 st.markdown("""
 <div class='main-header'>
-    <h1>🕌 نظام إدارة الدعومات والميزانية المطور</h1>
-    <p>منظومة متكاملة لمدفوعات الحلقات، المصروفات، البنود الفرعية والتعديل المباشر</p>
+    <h1>🕌 وقف الإرتقاء الخيري</h1>
+    <p>منظومة متكاملة لمدفوعات الحلقات، المصروفات، متابعة التبرعات وتذكيرات الواتساب</p>
 </div>
 """, unsafe_allow_html=True)
 
+# Navigation Menu as visible Radio Buttons on the right sidebar
+st.sidebar.title("📌 أجزاء النظام")
 menu = [
     "📊 لوحة التحكم المباشرة",
     "👥 دليل الداعمين وتعديل البيانات",
@@ -162,14 +174,14 @@ menu = [
     "⚙️ إعدادات البنود الرئيسية والفرعية"
 ]
 
-choice = st.sidebar.selectbox("📋 القائمة الرئيسية", menu)
+choice = st.sidebar.radio("انتقل إلى الصفحة:", menu, label_visibility="collapsed")
 
 MONTHS = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
 YEARS_LIST = list(range(2024, 2031))
 
 # --- 1. DASHBOARD ---
 if choice == "📊 لوحة التحكم المباشرة":
-    st.header("📊 لوحة التحكم والتحليل المالي المباشر")
+    st.header("📊 لوحة التحكم والتحليل المالي - وقف الإرتقاء الخيري")
     
     selected_dash_year = st.selectbox("📅 اختر سنة التقرير:", YEARS_LIST, index=YEARS_LIST.index(2026) if 2026 in YEARS_LIST else 0)
     
@@ -191,7 +203,7 @@ if choice == "📊 لوحة التحكم المباشرة":
     col4.metric("إجمالي عدد الداعمين", f"{len(donors_df)}")
     
     st.divider()
-    st.subheader(f"📈 ملخص الميزانية والسيولة حسب البنود لسنة {selected_dash_year}")
+    st.subheader(f"📈 ملخص ميزانية وقف الإرتقاء حسب البنود الرئيسية لسنة {selected_dash_year}")
     
     summary_data = []
     for cat in categories_df['name']:
@@ -214,12 +226,11 @@ if choice == "📊 لوحة التحكم المباشرة":
 
 # --- 2. DONORS DIRECTORY & EDITING ---
 elif choice == "👥 دليل الداعمين وتعديل البيانات":
-    st.header("👥 دليل الداعمين وإدارة بياناتهم")
+    st.header("👥 دليل الداعمين لإدارة وقف الإرتقاء الخيري")
     
     conn = get_connection()
     cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
-    if not cats: cats = ["رواتب المعلمين"]
-    default_cat_index = cats.index("رواتب المعلمين") if "رواتب المعلمين" in cats else 0
+    if not cats: cats = ["رواتب"]
 
     tab1, tab2 = st.tabs(["➕ إضافة داعم جديد", "✏️ تعديل بيانات داعم حالي"])
     
@@ -229,22 +240,31 @@ elif choice == "👥 دليل الداعمين وتعديل البيانات":
             d_name = col1.text_input("اسم الداعم / الجهة")
             d_project = col2.text_input("اسم الحلقة / المشروع المخصص")
             
-            d_cat = col1.selectbox("البند الرئيسي", cats, index=default_cat_index)
+            d_cat = col1.selectbox("البند الرئيسي الأساسي", cats)
             sub_cats = get_subcategories(d_cat)
-            d_subcat = col2.selectbox("البند الفرعي", sub_cats)
+            d_subcat = col2.selectbox("البند الفرعي المرتبط", sub_cats)
             
-            d_type = col1.selectbox("طبيعة الدعم", ["مستمر (شهري/دوري)", "مقطوع (مرة واحدة)"])
-            d_method = col2.selectbox("طريقة الدعم", ["مسبق (بداية الشهر)", "لاحق (نهاية الشهر)", "تحويل بنكي", "نقدي", "استقطاع شهري"])
-            d_phone = col1.text_input("رقم الواتساب / الجوال (مثال: 966500000000)")
-            d_notes = col2.text_area("ملاحظات")
+            d_type = col1.selectbox("حالة الدعم", ["مستمر", "منقطع / مقطوع"])
             
-            submit = st.form_submit_button("💾 حفظ الداعم")
+            monthly_exp = 0.0
+            annual_exp = 0.0
+            if d_type == "مستمر":
+                col_m1, col_m2 = st.columns(2)
+                monthly_exp = col_m1.number_input("المبلغ المتوقع شهرياً (ر.س)", min_value=0.0, value=500.0, step=50.0)
+                annual_exp = monthly_exp * 12
+                col_m2.info(f"إجمالي الدعم المتوقع سنوياً: **{annual_exp:,.2f} ر.س**")
+            
+            d_method = col1.selectbox("طريقة الدعم", ["مسبق (بداية الشهر)", "لاحق (نهاية الشهر)", "تحويل بنكي", "نقدي", "استقطاع شهري"])
+            d_phone = col2.text_input("رقم الواتساب (مثال: 966500000000)")
+            d_notes = st.text_area("ملاحظات إضافية")
+            
+            submit = st.form_submit_button("💾 حفظ بيانات الداعم")
             if submit and d_name:
                 c = conn.cursor()
-                c.execute("INSERT INTO donors (name, project, category, subcategory, support_type, method, phone, notes) VALUES (?,?,?,?,?,?,?,?)",
-                          (d_name, d_project, d_cat, d_subcat, d_type, d_method, d_phone, d_notes))
+                c.execute("INSERT INTO donors (name, project, category, subcategory, support_type, monthly_expected, annual_expected, method, phone, notes) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                          (d_name, d_project, d_cat, d_subcat, d_type, monthly_exp, annual_exp, d_method, d_phone, d_notes))
                 conn.commit()
-                st.success("تم إضافة الداعم بنجاح!")
+                st.success("تم إضافة الداعم وحساب التوقعات بنجاح!")
                 st.rerun()
 
     with tab2:
@@ -262,10 +282,15 @@ elif choice == "👥 دليل الداعمين وتعديل البيانات":
                 sub_cats_edit = get_subcategories(ed_cat)
                 ed_subcat = col2.selectbox("البند الفرعي", sub_cats_edit, index=sub_cats_edit.index(d_data['subcategory']) if d_data['subcategory'] in sub_cats_edit else 0)
                 
-                ed_type = col1.selectbox("طبيعة الدعم", ["مستمر (شهري/دوري)", "مقطوع (مرة واحدة)"], index=0 if "مستمر" in d_data['support_type'] else 1)
-                ed_method = col2.selectbox("طريقة الدعم", ["مسبق (بداية الشهر)", "لاحق (نهاية الشهر)", "تحويل بنكي", "نقدي", "استقطاع شهري"])
-                ed_phone = col1.text_input("رقم الواتساب", value=d_data['phone'])
-                ed_notes = col2.text_area("ملاحظات", value=d_data['notes'])
+                ed_type = col1.selectbox("حالة الدعم", ["مستمر", "منقطع / مقطوع"], index=0 if "مستمر" in d_data['support_type'] else 1)
+                
+                ed_monthly = col1.number_input("المبلغ الشهري المتوقع", value=float(d_data['monthly_expected']))
+                ed_annual = ed_monthly * 12
+                col2.info(f"إجمالي المتوقع سنوياً: **{ed_annual:,.2f} ر.س**")
+                
+                ed_method = col1.selectbox("طريقة الدعم", ["مسبق (بداية الشهر)", "لاحق (نهاية الشهر)", "تحويل بنكي", "نقدي", "استقطاع شهري"])
+                ed_phone = col2.text_input("رقم الواتساب", value=d_data['phone'])
+                ed_notes = st.text_area("ملاحظات", value=d_data['notes'])
                 
                 c_btn1, c_btn2 = st.columns(2)
                 update_btn = c_btn1.form_submit_button("✏️ حفظ التعديلات")
@@ -273,10 +298,10 @@ elif choice == "👥 دليل الداعمين وتعديل البيانات":
                 
                 if update_btn:
                     c = conn.cursor()
-                    c.execute("UPDATE donors SET name=?, project=?, category=?, subcategory=?, support_type=?, method=?, phone=?, notes=? WHERE id=?",
-                              (ed_name, ed_project, ed_cat, ed_subcat, ed_type, ed_method, ed_phone, ed_notes, int(d_data['id'])))
+                    c.execute("UPDATE donors SET name=?, project=?, category=?, subcategory=?, support_type=?, monthly_expected=?, annual_expected=?, method=?, phone=?, notes=? WHERE id=?",
+                              (ed_name, ed_project, ed_cat, ed_subcat, ed_type, ed_monthly, ed_annual, ed_method, ed_phone, ed_notes, int(d_data['id'])))
                     conn.commit()
-                    st.success("تم تحديث بيانات الداعم بنجاح!")
+                    st.success("تم تحديث البيانات بنجاح!")
                     st.rerun()
                     
                 if delete_btn:
@@ -287,18 +312,18 @@ elif choice == "👥 دليل الداعمين وتعديل البيانات":
                     st.rerun()
 
     st.divider()
-    donors_df = pd.read_sql("SELECT id as 'م', name as 'اسم الداعم', project as 'الحلقة/المشروع', category as 'البند الرئيسي', subcategory as 'البند الفرعي', support_type as 'طبيعة الدعم', phone as 'الواتساب' FROM donors", conn)
+    donors_df = pd.read_sql("SELECT id as 'م', name as 'اسم الداعم', project as 'الحلقة/المشروع', category as 'البند الرئيسي', subcategory as 'البند الفرعي', support_type as 'حالة الدعم', monthly_expected as 'المتوقع شهرياً', annual_expected as 'المتوقع سنوياً', phone as 'الواتساب' FROM donors", conn)
     conn.close()
     st.dataframe(donors_df, use_container_width=True)
 
 # --- 3. INCOME REGISTRATION & EDITING ---
 elif choice == "📥 تسجيل وتعديل المقبوضات":
-    st.header("📥 تسجيل وتعديل عمليات الدعم (المقبوضات)")
+    st.header("📥 تسجيل وتعديل المقبوضات والتحويلات المالية")
     
     conn = get_connection()
     donors_df = pd.read_sql("SELECT * FROM donors", conn)
     cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
-    if not cats: cats = ["رواتب المعلمين"]
+    if not cats: cats = ["رواتب"]
 
     tab1, tab2 = st.tabs(["➕ تسجيل دعم جديد", "✏️ تعديل / حذف عملية دعم مسجلة"])
 
@@ -309,32 +334,38 @@ elif choice == "📥 تسجيل وتعديل المقبوضات":
             selected_donor = st.selectbox("اختر الداعم / الجهة ⚡", donors_df['name'].tolist())
             donor_info = donors_df[donors_df['name'] == selected_donor].iloc[0]
             
-            donor_default_cat = donor_info['category'] if donor_info['category'] in cats else "رواتب المعلمين"
+            donor_default_cat = donor_info['category'] if donor_info['category'] in cats else cats[0]
             donor_cat_index = cats.index(donor_default_cat) if donor_default_cat in cats else 0
             
             col1, col2 = st.columns(2)
             col1.info(f"📍 الحلقة المخصصة: **{donor_info['project']}**")
-            col2.info(f"🏷️ البند المسجل للداعم: **{donor_info['category']} ({donor_info['subcategory']})**")
+            col2.info(f"🏷️ البند الافتراضي للداعم: **{donor_info['category']} ({donor_info['subcategory']})**")
             
             with st.form("receipt_form"):
+                st.caption("💡 يمكنك تغيير وتعديل البند الرئيسي والفرعي لهذه الدفعة تحديداً:")
                 c1, c2 = st.columns(2)
-                r_cat = c1.selectbox("البند الرئيسي للدفعة", cats, index=donor_cat_index)
+                r_cat = c1.selectbox("البند الرئيسي لهذه الدفعة", cats, index=donor_cat_index)
                 sub_cats = get_subcategories(r_cat)
-                r_subcat = c2.selectbox("البند الفرعي للدفعة", sub_cats)
+                r_subcat = c2.selectbox("البند الفرعي لهذه الدفعة", sub_cats)
 
-                c3, c4, c5, c6 = st.columns(4)
-                r_amount = c3.number_input("المبلغ (ر.س)", min_value=1.0, value=1000.0, step=100.0)
-                r_date = c4.date_input("تاريخ الدعم الفعلي", datetime.date.today())
+                c3, c4 = st.columns(2)
+                r_amount = c3.number_input("المبلغ المقبوض (ر.س)", min_value=1.0, value=float(donor_info['monthly_expected']) if donor_info['monthly_expected'] > 0 else 1000.0, step=100.0)
+                r_date = c4.date_input("تاريخ الدعم الفعلي (ميلادي)", datetime.date.today())
+                
+                hijri_str = get_hijri_str(r_date)
+                st.write(f"📅 التاريخ الهجري المقابل: **{hijri_str}**")
+
+                c5, c6 = st.columns(2)
                 r_month = c5.selectbox("الشهر المخصص", MONTHS, index=datetime.datetime.now().month - 1)
                 r_year = c6.selectbox("السنة المخصصة", YEARS_LIST, index=YEARS_LIST.index(r_date.year) if r_date.year in YEARS_LIST else 2)
                 
                 save_receipt = st.form_submit_button("تسجيل المقبوضات ✅")
                 if save_receipt:
                     c = conn.cursor()
-                    c.execute("INSERT INTO receipts (date, donor_id, donor_name, project, category, subcategory, amount, month, year) VALUES (?,?,?,?,?,?,?,?,?)",
-                              (str(r_date), donor_info['id'], donor_info['name'], donor_info['project'], r_cat, r_subcat, r_amount, r_month, int(r_year)))
+                    c.execute("INSERT INTO receipts (date, date_hijri, donor_id, donor_name, project, category, subcategory, amount, month, year) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                              (str(r_date), hijri_str, donor_info['id'], donor_info['name'], donor_info['project'], r_cat, r_subcat, r_amount, r_month, int(r_year)))
                     conn.commit()
-                    st.success(f"تم تسجيل مبلغ {r_amount:,.2f} ر.س بنجاح!")
+                    st.success(f"تم تسجيل مبلغ {r_amount:,.2f} ر.س بنجاح مع توثيق التاريخ الهجري والميلادي!")
                     st.rerun()
 
     with tab2:
@@ -374,30 +405,33 @@ elif choice == "📥 تسجيل وتعديل المقبوضات":
                     st.warning("تم حذف عملية الدعم.")
                     st.rerun()
 
-    st.subheader("📋 سجل المقبوضات الأخير")
-    receipts_df = pd.read_sql("SELECT id as 'م', date as 'التاريخ', donor_name as 'الداعم', project as 'الحلقة', category as 'البند الرئيسي', subcategory as 'البند الفرعي', amount as 'المبلغ (ر.س)', month as 'الشهر', year as 'السنة' FROM receipts ORDER BY id DESC", conn)
+    st.subheader("📋 سجل المقبوضات الأخير (مزدوج التقويم)")
+    receipts_df = pd.read_sql("SELECT id as 'م', date as 'التاريخ الميلادي', date_hijri as 'التاريخ الهجري', donor_name as 'الداعم', project as 'الحلقة', category as 'البند الرئيسي', subcategory as 'البند الفرعي', amount as 'المبلغ (ر.س)', month as 'الشهر', year as 'السنة' FROM receipts ORDER BY id DESC", conn)
     conn.close()
     st.dataframe(receipts_df, use_container_width=True)
 
 # --- 4. EXPENSES REGISTRATION & EDITING ---
 elif choice == "💸 تسجيل وتعديل المصروفات":
-    st.header("💸 تسجيل وتعديل المصروفات والتسديدات")
+    st.header("💸 تسجيل وتعديل المصروفات لوقف الإرتقاء الخيري")
     
     conn = get_connection()
     cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
-    if not cats: cats = ["رواتب المعلمين"]
+    if not cats: cats = ["رواتب"]
 
     tab1, tab2 = st.tabs(["➕ تسجيل مصروف جديد", "✏️ تعديل / حذف مصروف"])
 
     with tab1:
         with st.form("expense_form"):
             col1, col2 = st.columns(2)
-            exp_date = col1.date_input("تاريخ الصرف", datetime.date.today())
-            exp_beneficiary = col2.text_input("الجهة / المستفيد / الحلقة")
+            exp_date = col1.date_input("تاريخ الصرف الميلادي", datetime.date.today())
+            exp_hijri = get_hijri_str(exp_date)
+            col2.write(f"📅 التاريخ الهجري المقابل: **{exp_hijri}**")
+            
+            exp_beneficiary = st.text_input("المستفيد / الحلقة / البرنامج")
             
             exp_cat = col1.selectbox("البند الرئيسي المخصوم منه", cats)
             sub_cats = get_subcategories(exp_cat)
-            exp_subcat = col2.selectbox("البند الفرعي", sub_cats)
+            exp_subcat = col2.selectbox("البند الفرعي المخصص", sub_cats)
 
             c1, c2, c3 = st.columns([1, 2, 1])
             exp_amount = c1.number_input("المبلغ المصروف (ر.س)", min_value=1.0, value=500.0, step=50.0)
@@ -407,8 +441,8 @@ elif choice == "💸 تسجيل وتعديل المصروفات":
             submit_exp = st.form_submit_button("تسجيل المصروف 💸")
             if submit_exp and exp_beneficiary:
                 c = conn.cursor()
-                c.execute("INSERT INTO expenses (date, beneficiary, category, subcategory, amount, notes, year) VALUES (?,?,?,?,?,?,?)",
-                          (str(exp_date), exp_beneficiary, exp_cat, exp_subcat, exp_amount, exp_notes, int(exp_year)))
+                c.execute("INSERT INTO expenses (date, date_hijri, beneficiary, category, subcategory, amount, notes, year) VALUES (?,?,?,?,?,?,?,?)",
+                          (str(exp_date), exp_hijri, exp_beneficiary, exp_cat, exp_subcat, exp_amount, exp_notes, int(exp_year)))
                 conn.commit()
                 st.success("تم تسجيل المصروف بنجاح!")
                 st.rerun()
@@ -450,13 +484,13 @@ elif choice == "💸 تسجيل وتعديل المصروفات":
                     st.warning("تم حذف المصروف.")
                     st.rerun()
 
-    expenses_df = pd.read_sql("SELECT id as 'م', date as 'التاريخ', beneficiary as 'المستفيد/الحلقة', category as 'البند الرئيسي', subcategory as 'البند الفرعي', amount as 'المبلغ (ر.س)', year as 'السنة', notes as 'البيان' FROM expenses ORDER BY id DESC", conn)
+    expenses_df = pd.read_sql("SELECT id as 'م', date as 'التاريخ الميلادي', date_hijri as 'التاريخ الهجري', beneficiary as 'المستفيد/الحلقة', category as 'البند الرئيسي', subcategory as 'البند الفرعي', amount as 'المبلغ (ر.س)', year as 'السنة', notes as 'البيان' FROM expenses ORDER BY id DESC", conn)
     conn.close()
     st.dataframe(expenses_df, use_container_width=True)
 
 # --- 5. MONTHLY TRACKING MATRIX ---
 elif choice == "🗓️ جدول متابعة الأشهر والسنوات":
-    st.header("🗓️ جدول متابعة دعم الأشهر والسنوات الديناميكي")
+    st.header("🗓️ جدول متابعة التزامات الداعمين شهرياً وسنوياً")
     
     col_sel_y, _ = st.columns([1, 2])
     with col_sel_y:
@@ -477,14 +511,13 @@ elif choice == "🗓️ جدول متابعة الأشهر والسنوات":
                 "الحلقة": d['project'],
                 "البند الرئيسي": d['category'],
                 "البند الفرعي": d['subcategory'],
-                "طبيعة الدعم": d['support_type']
+                "حالة الدعم": d['support_type']
             }
             supported_count = 0
             for m in MONTHS:
-                if "مقطوع" in d['support_type']:
-                    row[m] = "⚪ مقطوع"
+                if "منقطع" in d['support_type'] or "مقطوع" in d['support_type']:
+                    row[m] = "⚪ منقطع"
                 else:
-                    # تحقق عام برقم الداعم للتحكم الدقيق بغض النظر عن اختلاف البند المختار وقت التسجيل
                     has_paid = not receipts_df[(receipts_df['donor_id'] == d['id']) & (receipts_df['month'] == m)].empty
                     if has_paid:
                         row[m] = "✅ تم الدعم"
@@ -503,11 +536,11 @@ elif choice == "🗓️ جدول متابعة الأشهر والسنوات":
 
 # --- 6. CATEGORY DETAILED REPORTS ---
 elif choice == "📄 تقارير البنود المخصصة":
-    st.header("📄 تفاصيل البنود المخصصة والفرعية")
+    st.header("📄 تفاصيل وحركة البنود الرئيسية والفرعية")
     
     conn = get_connection()
     cats = pd.read_sql("SELECT name FROM categories", conn)['name'].tolist()
-    if not cats: cats = ["رواتب المعلمين"]
+    if not cats: cats = ["رواتب"]
         
     col_c, col_y = st.columns(2)
     selected_cat = col_c.selectbox("اختر البند الرئيسي", cats)
@@ -526,9 +559,9 @@ elif choice == "📄 تقارير البنود المخصصة":
     c2.metric(f"إجمالي المنصرف لسنة {selected_y}", f"{cat_exp:,.2f} ر.س")
     c3.metric("الرصيد المتبقي للبند", f"{cat_bal:,.2f} ر.س")
     
-    st.subheader(f"📥 المقبوضات حسب البنود الفرعية لـ ({selected_cat})")
+    st.subheader(f"📥 المقبوضات المسجلة تحت بند ({selected_cat}) - بالتاريخ الهجري والميلادي")
     if not receipts_df.empty:
-        st.dataframe(receipts_df[['date', 'donor_name', 'project', 'category', 'subcategory', 'amount', 'month']], use_container_width=True)
+        st.dataframe(receipts_df[['date', 'date_hijri', 'donor_name', 'project', 'category', 'subcategory', 'amount', 'month']], use_container_width=True)
     else:
         st.info("لا توجد مقبوضات مسجلة لهذا البند في هذه السنة.")
 
@@ -553,7 +586,7 @@ elif choice == "📱 مركز تذكير الواتساب":
             paid = not receipts_df[receipts_df['donor_id'] == d['id']].empty
             if not paid:
                 phone = str(d['phone']).replace("+", "").replace(" ", "")
-                msg = f"السلام عليكم ورحمة الله وبركاته، الأخ العزيز/ {d['name']}، نود تذكيركم ودعوتكم لاستكمال دعم شهر ({selected_month}) لسنة ({selected_wa_year}) المخصص لـ ({d['project']}). كتب الله أجركم وبارك في رزقكم."
+                msg = f"السلام عليكم ورحمة الله وبركاته، الأخ العزيز/ {d['name']}، نود تذكيركم ودعوتكم لاستكمال دعم شهر ({selected_month}) لسنة ({selected_wa_year}) المخصص لـ ({d['project']}) - وقف الإرتقاء الخيري. كتب الله أجركم وبارك في رزقكم."
                 encoded_msg = urllib.parse.quote(msg)
                 wa_url = f"https://wa.me/{phone}?text={encoded_msg}"
                 
@@ -577,7 +610,7 @@ elif choice == "📱 مركز تذكير الواتساب":
 
 # --- 8. PRINTABLE REPORTS & EXPORT ---
 elif choice == "🖨️ التقارير القابلة للطباعة والتصدير":
-    st.header("🖨️ التقرير المالي الدوري والسنوي")
+    st.header("🖨️ التقرير المالي الرسمي - وقف الإرتقاء الخيري")
     
     c1, c2, c3 = st.columns(3)
     rep_type = c1.selectbox("نوع التقرير المطلوب", ["شهري", "سنوي (كامل)"])
@@ -599,10 +632,12 @@ elif choice == "🖨️ التقارير القابلة للطباعة والت�
     
     st.markdown(f"""
     <div class='card'>
-        <h3 style='text-align:center;'>تقرير مالي ({rep_type}) - لسنة {selected_y} {f"({selected_m})" if rep_type == "شهري" else ""}</h3>
+        <h3 style='text-align:center;'>🕌 وقف الإرتقاء الخيري</h3>
+        <h4 style='text-align:center;'>تقرير مالي ({rep_type}) - لسنة {selected_y} {f"({selected_m})" if rep_type == "شهري" else ""}</h4>
+        <hr>
         <p><b>إجمالي مقبوضات الفترة:</b> {tot_inc:,.2f} ر.س</p>
-        <p><b>إجمالي المصروفات الفترة:</b> {tot_exp:,.2f} ر.س</p>
-        <p><b>الفائض / العجز:</b> <span style='color: {"green" if surplus >=0 else "red"}; font-weight:bold;'>{surplus:,.2f} ر.س</span></p>
+        <p><b>إجمالي مصروفات الفترة:</b> {tot_exp:,.2f} ر.س</p>
+        <p><b>الفائض / العجز المتبقي:</b> <span style='color: {"green" if surplus >=0 else "red"}; font-weight:bold;'>{surplus:,.2f} ر.س</span></p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -614,13 +649,13 @@ elif choice == "🖨️ التقارير القابلة للطباعة والت�
     st.download_button(
         label="📥 تصدير التقرير المالي كملف إكسل (Excel)",
         data=output.getvalue(),
-        file_name=f"Financial_Report_{selected_y}_{selected_m}.xlsx",
+        file_name=f"Ertikaa_Financial_Report_{selected_y}_{selected_m}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
 # --- 9. SETTINGS (CATEGORIES & SUBCATEGORIES) ---
 elif choice == "⚙️ إعدادات البنود الرئيسية والفرعية":
-    st.header("⚙️ إدارة البنود الرئيسية والبنود الفرعية")
+    st.header("⚙️ إدارة شجرة البنود الرئيسية والفرعية")
     
     conn = get_connection()
     cats_df = pd.read_sql("SELECT * FROM categories", conn)
@@ -641,9 +676,9 @@ elif choice == "⚙️ إعدادات البنود الرئيسية والفرع
                 st.error("البند موجود بالفعل.")
 
     with col2:
-        st.subheader("🔹 إضافة بند فرعي جديد")
-        selected_parent_cat = st.selectbox("اختر البند الرئيسي الأب", cats_df['name'].tolist() if not cats_df.empty else ["رواتب المعلمين"])
-        new_subcat = st.text_input("اسم البند الفرعي الجديد")
+        st.subheader("🔹 إضافة بند فرعي جديد مرتبط")
+        selected_parent_cat = st.selectbox("اختر البند الرئيسي الأب", cats_df['name'].tolist() if not cats_df.empty else ["رواتب"])
+        new_subcat = st.text_input("اسم البند الفرعي (مثل: برنامج رمضان لعام 1448 هـ)")
         if st.button("حفظ البند الفرعي") and new_subcat:
             c = conn.cursor()
             c.execute("INSERT INTO subcategories (category_name, name) VALUES (?,?)", (selected_parent_cat, new_subcat.strip()))
@@ -652,8 +687,8 @@ elif choice == "⚙️ إعدادات البنود الرئيسية والفرع
             st.rerun()
 
     st.divider()
-    st.subheader("📋 شجرة البنود المسجلة حالياً")
-    subcats_df = pd.read_sql("SELECT category_name as 'البند الرئيسي', name as 'البند الفرعي' FROM subcategories", conn)
+    st.subheader("📋 شجرة البنود لـ وقف الإرتقاء الخيري")
+    subcats_df = pd.read_sql("SELECT category_name as 'البند الرئيسي', name as 'البند الفرعي المرتبط' FROM subcategories", conn)
     conn.close()
     
     st.dataframe(subcats_df, use_container_width=True)
